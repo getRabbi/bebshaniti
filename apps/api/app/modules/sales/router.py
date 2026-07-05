@@ -726,9 +726,7 @@ async def void_sale(
                     "reason": payload.reason.strip(),
                     "due": sale["due_total"],
                     "refund": sale["paid_total"],
-                    "method": (
-                        payload.refund_method if Decimal(sale["paid_total"]) > 0 else None
-                    ),
+                    "method": (payload.refund_method if Decimal(sale["paid_total"]) > 0 else None),
                     "user": user.id,
                 },
             )
