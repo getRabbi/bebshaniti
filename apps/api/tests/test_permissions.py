@@ -33,3 +33,9 @@ def test_product_import_is_admin_only_by_default() -> None:
     assert has_permission(context("admin"), "products.import")
     assert not has_permission(context("manager"), "products.import")
     assert not has_permission(context("inventory_manager"), "products.import")
+
+
+def test_restricted_permissions_cannot_be_granted_by_override() -> None:
+    manager = context("manager", {"products.import": True, "audit.view": True})
+    assert not has_permission(manager, "products.import")
+    assert not has_permission(manager, "audit.view")

@@ -69,6 +69,11 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "support": frozenset(),
 }
 
+ROLE_RESTRICTED_PERMISSIONS: dict[str, frozenset[str]] = {
+    "products.import": frozenset({"owner", "admin"}),
+    "audit.view": frozenset({"owner", "admin"}),
+}
+
 
 def effective_permissions(context: OrganizationContext) -> set[str]:
     permissions = set(ROLE_PERMISSIONS.get(context.role, frozenset()))
@@ -76,6 +81,9 @@ def effective_permissions(context: OrganizationContext) -> set[str]:
         if enabled:
             permissions.add(name)
         else:
+            permissions.discard(name)
+    for name, allowed_roles in ROLE_RESTRICTED_PERMISSIONS.items():
+        if context.role not in allowed_roles:
             permissions.discard(name)
     return permissions
 
