@@ -21,4 +21,8 @@ def test_production_engine_does_not_retain_serverless_connections(monkeypatch) -
     assert factory.call_args.kwargs["poolclass"] is NullPool
     assert "pool_size" not in factory.call_args.kwargs
     assert "max_overflow" not in factory.call_args.kwargs
+    assert factory.call_args.kwargs["connect_args"] == {
+        "prepared_statement_cache_size": 0,
+        "statement_cache_size": 0,
+    }
     session_module.get_engine.cache_clear()
