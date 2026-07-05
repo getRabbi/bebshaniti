@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import require_permission
 from app.core.security import CurrentUser, get_current_user
-from app.core.tenant import OrganizationContext, get_organization_context
+from app.core.tenant import OrganizationContext, get_organization_context, resolve_branch_id
 from app.db.session import get_db_session
 from app.schemas import DueCollectionCreate
 
@@ -48,8 +48,14 @@ async def collect_due(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    branch_id = payload.branch_id or context.branch_id
     async with session.begin():
+        requested_branch_id = payload.branch_id
+        if context.branch_id is not None:
+            branch_id = await resolve_branch_id(context, session, requested_branch_id)
+        elif requested_branch_id is not None:
+            branch_id = await resolve_branch_id(context, session, requested_branch_id)
+        else:
+            branch_id = None
         customer = (
             (
                 await session.execute(
@@ -60,12 +66,14 @@ async def collect_due(
                     left join public.customer_ledger_entries l
                       on l.customer_id = c.id and l.organization_id = c.organization_id
                     where c.id = :customer_id and c.organization_id = :organization_id
+                      and (cast(:branch_id as uuid) is null or c.branch_id=:branch_id)
                     group by c.id
                     """
                     ),
                     {
                         "customer_id": payload.customer_id,
                         "organization_id": context.organization_id,
+                        "branch_id": branch_id,
                     },
                 )
             )
@@ -77,8 +85,6 @@ async def collect_due(
         if payload.amount > customer["balance"]:
             raise HTTPException(status_code=422, detail="Collection exceeds outstanding due")
         branch_id = branch_id or customer["branch_id"]
-        if branch_id is None:
-            raise HTTPException(status_code=409, detail="An active branch is required")
         payment_id = (
             await session.execute(
                 text(

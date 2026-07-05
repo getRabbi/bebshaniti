@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import has_permission, require_permission
 from app.core.security import CurrentUser, get_current_user
-from app.core.tenant import OrganizationContext, get_organization_context
+from app.core.tenant import OrganizationContext, get_organization_context, resolve_branch_id
 from app.db.session import get_db_session
 from app.schemas import SaleCreate, SaleReturnCreate, SaleVoidCreate
 
@@ -153,17 +153,28 @@ async def create_sale(
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    branch_id = payload.branch_id or context.branch_id
     async with session.begin():
-        if branch_id is None:
-            branch_id = (
+        branch_id = await resolve_branch_id(context, session, payload.branch_id)
+
+        if payload.customer_id is not None:
+            customer_exists = (
                 await session.execute(
-                    text("select id from public.branches where organization_id = :id and is_main"),
-                    {"id": context.organization_id},
+                    text(
+                        """
+                        select id from public.customers
+                        where id=:customer_id and organization_id=:organization_id
+                          and branch_id=:branch_id and status='active'
+                        """
+                    ),
+                    {
+                        "customer_id": payload.customer_id,
+                        "organization_id": context.organization_id,
+                        "branch_id": branch_id,
+                    },
                 )
             ).scalar_one_or_none()
-        if branch_id is None:
-            raise HTTPException(status_code=409, detail="An active branch is required")
+            if customer_exists is None:
+                raise HTTPException(status_code=404, detail="Customer not found in this branch")
 
         lines: list[tuple[RowMapping, Decimal, Decimal, Decimal, Decimal]] = []
         subtotal = Decimal("0")
@@ -518,7 +529,7 @@ async def return_sale_items(
                       (organization_id,branch_id,sale_id,return_no,reason,return_total,
                        due_adjustment,refund_amount,refund_method,created_by)
                     values (:org,:branch,:sale,:number,:reason,:total,:due,:refund,
-                            case when :refund>0 then :method else null end,:user) returning id
+                            :method,:user) returning id
                     """
                 ),
                 {
@@ -530,7 +541,7 @@ async def return_sale_items(
                     "total": return_total,
                     "due": due_adjustment,
                     "refund": refund_amount,
-                    "method": payload.refund_method,
+                    "method": payload.refund_method if refund_amount > 0 else None,
                     "user": user.id,
                 },
             )
@@ -705,7 +716,7 @@ async def void_sale(
                       (organization_id,branch_id,sale_id,reason,due_adjustment,refund_amount,
                        refund_method,created_by)
                     values (:org,:branch,:sale,:reason,:due,:refund,
-                            case when :refund>0 then :method else null end,:user) returning id
+                            :method,:user) returning id
                     """
                 ),
                 {
@@ -715,7 +726,9 @@ async def void_sale(
                     "reason": payload.reason.strip(),
                     "due": sale["due_total"],
                     "refund": sale["paid_total"],
-                    "method": payload.refund_method,
+                    "method": (
+                        payload.refund_method if Decimal(sale["paid_total"]) > 0 else None
+                    ),
                     "user": user.id,
                 },
             )

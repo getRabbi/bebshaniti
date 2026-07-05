@@ -349,11 +349,11 @@ export function PosSale() {
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
               >
-                <option value="cash">Cash</option>
+                <option value="cash">{t("cash")}</option>
                 <option value="bkash">bKash</option>
                 <option value="nagad">Nagad</option>
-                <option value="card">Card</option>
-                <option value="bank">Bank</option>
+                <option value="card">{t("card")}</option>
+                <option value="bank">{t("bank")}</option>
               </select>
             </label>
             <label>

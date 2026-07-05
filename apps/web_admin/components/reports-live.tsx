@@ -145,8 +145,10 @@ export function ReportsLive() {
     const link = document.createElement("a");
     link.href = url;
     link.download = "sales-report.csv";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return (
     <>
@@ -202,7 +204,7 @@ export function ReportsLive() {
         <button className="button" onClick={() => void load()}>
           {t("applyFilters")}
         </button>
-        <button className="filter-button" onClick={exportCsv}>
+        <button className="filter-button" onClick={exportCsv} disabled={!sales}>
           {t("exportCsv")}
         </button>
       </section>

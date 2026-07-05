@@ -338,7 +338,7 @@ export function CashMemo({
             <label className="field">
               <span>{t("refundMethod")}</span>
               <select disabled>
-                <option>Cash</option>
+                <option>{t("cash")}</option>
               </select>
             </label>
             <div className="form-actions">

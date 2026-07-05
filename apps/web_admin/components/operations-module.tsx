@@ -465,7 +465,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
                   <label className="field">
                     <span>{t("payment")}</span>
                     <select name="method">
-                      <option value="cash">Cash</option>
+                      <option value="cash">{t("cash")}</option>
                       <option value="bkash">bKash</option>
                       <option value="nagad">Nagad</option>
                     </select>
@@ -639,7 +639,7 @@ function ProductForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (name.trim().length < 1 || selected?.bn_name === name) {
+    if (!token || !org || name.trim().length < 1 || selected?.bn_name === name) {
       setSuggestions([]);
       return;
     }
@@ -855,7 +855,7 @@ function ProductForm({
             <span>{t("profit")}</span>
             <strong>{money.format(profit)}</strong>
             <small>
-              Margin {margin.toFixed(1)}% · Markup {markup.toFixed(1)}%
+              {t("profitMargin")} {margin.toFixed(1)}% · {t("markup")} {markup.toFixed(1)}%
             </small>
           </div>
         </div>

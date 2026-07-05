@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import require_permission
 from app.core.security import CurrentUser, get_current_user
-from app.core.tenant import OrganizationContext, get_organization_context
+from app.core.tenant import OrganizationContext, get_organization_context, resolve_branch_id
 from app.db.session import get_db_session
 from app.schemas import InventoryAdjustmentCreate
 
@@ -57,17 +57,8 @@ async def create_adjustment(
 ) -> dict[str, object]:
     if payload.quantity_change == 0:
         raise HTTPException(status_code=422, detail="Quantity change cannot be zero")
-    branch_id = payload.branch_id or context.branch_id
     async with session.begin():
-        if branch_id is None:
-            branch_id = (
-                await session.execute(
-                    text("select id from public.branches where organization_id = :id and is_main"),
-                    {"id": context.organization_id},
-                )
-            ).scalar_one_or_none()
-        if branch_id is None:
-            raise HTTPException(status_code=409, detail="An active branch is required")
+        branch_id = await resolve_branch_id(context, session, payload.branch_id)
         warehouse_id = payload.warehouse_id
         if warehouse_id is None:
             warehouse_id = (
@@ -82,6 +73,25 @@ async def create_adjustment(
                     {"organization_id": context.organization_id, "branch_id": branch_id},
                 )
             ).scalar_one_or_none()
+        else:
+            warehouse_id = (
+                await session.execute(
+                    text(
+                        """
+                        select id from public.warehouses
+                        where id=:warehouse_id and organization_id=:organization_id
+                          and branch_id=:branch_id and is_active
+                        """
+                    ),
+                    {
+                        "warehouse_id": warehouse_id,
+                        "organization_id": context.organization_id,
+                        "branch_id": branch_id,
+                    },
+                )
+            ).scalar_one_or_none()
+            if warehouse_id is None:
+                raise HTTPException(status_code=404, detail="Warehouse not found")
         result = await session.execute(
             text(
                 """

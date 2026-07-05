@@ -38,7 +38,7 @@ export function Sidebar() {
           data.session.access_token,
           organizationId,
         );
-        setPermissions(context.permissions);
+        setPermissions(context.permissions ?? []);
       } catch {
         setPermissions([]);
       }
