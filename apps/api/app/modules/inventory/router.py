@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,6 +94,75 @@ async def create_adjustment(
             ).scalar_one_or_none()
             if warehouse_id is None:
                 raise HTTPException(status_code=404, detail="Warehouse not found")
+        variant_exists = (
+            await session.execute(
+                text(
+                    """
+                    select 1 from public.product_variants
+                    where id=:variant_id and organization_id=:organization_id
+                      and status='active'
+                    """
+                ),
+                {
+                    "variant_id": payload.product_variant_id,
+                    "organization_id": context.organization_id,
+                },
+            )
+        ).scalar_one_or_none()
+        if variant_exists is None:
+            raise HTTPException(status_code=404, detail="Product variant not found")
+
+        if payload.quantity_change < 0:
+            settings = (
+                await session.execute(
+                    text("select settings from public.organizations where id=:id"),
+                    {"id": context.organization_id},
+                )
+            ).scalar_one()
+            allow_negative_stock = (
+                isinstance(settings, dict) and settings.get("allow_negative_stock") is True
+            )
+            if not allow_negative_stock:
+                await session.execute(
+                    text(
+                        """
+                        select pg_advisory_xact_lock(hashtextextended(
+                          cast(:organization_id as text) || ':' ||
+                          cast(:branch_id as text) || ':' || cast(:variant_id as text), 0
+                        ))
+                        """
+                    ),
+                    {
+                        "organization_id": context.organization_id,
+                        "branch_id": branch_id,
+                        "variant_id": payload.product_variant_id,
+                    },
+                )
+                current_quantity = (
+                    await session.execute(
+                        text(
+                            """
+                            select quantity from public.inventory_balances
+                            where organization_id=:organization_id
+                              and branch_id=:branch_id
+                              and warehouse_id is not distinct from cast(:warehouse_id as uuid)
+                              and product_variant_id=:variant_id
+                            for update
+                            """
+                        ),
+                        {
+                            "organization_id": context.organization_id,
+                            "branch_id": branch_id,
+                            "warehouse_id": warehouse_id,
+                            "variant_id": payload.product_variant_id,
+                        },
+                    )
+                ).scalar_one_or_none()
+                if Decimal(current_quantity or 0) + payload.quantity_change < 0:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Insufficient stock; negative inventory is disabled",
+                    )
         result = await session.execute(
             text(
                 """

@@ -11,7 +11,7 @@ Future<void> main() async {
   Environment.validate();
   await Supabase.initialize(
     url: Environment.supabaseUrl,
-    anonKey: Environment.supabaseAnonKey,
+    publishableKey: Environment.supabaseAnonKey,
   );
   runApp(const ProviderScope(child: PosApp()));
 }

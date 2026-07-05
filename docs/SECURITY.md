@@ -19,6 +19,8 @@ Authentication does not grant tenant access. An active `memberships` row is mand
 
 Completed sales are immutable. Returns/voids must post compensating documents. Customer and supplier balances derive from append-only entries. Stock derives from movements. Sensitive table changes emit audit rows. Client roles cannot directly mutate canonical financial/inventory journals.
 
+Negative inventory is denied by the API and database by default. A reviewed organization setting, `allow_negative_stock: true`, is required to opt in. This guard applies to sales and manual adjustments as well as direct movement inserts.
+
 ## Launch controls still required
 
 - RLS integration tests with two organizations and multiple branches.

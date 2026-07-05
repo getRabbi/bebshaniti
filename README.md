@@ -2,6 +2,8 @@
 
 Production foundation and working web release for a multi-tenant Bangladesh retail and wholesale operating system. Supabase Auth/Postgres/RLS/Storage, FastAPI, the Next.js admin and landing applications, CI, and deployment documentation are wired without fake production data. The web release includes owner registration, atomic workspace onboarding, product/customer management, audited stock adjustments, server-calculated sales, due collection and live operational summaries.
 
+This is not yet the full product roadmap or an approval for public merchant launch. Staff/device activation, supplier purchasing, offline Flutter POS sync, licensing and the operational controls in `docs/PRODUCTION_LAUNCH_CHECKLIST.md` remain release gates.
+
 ## Repository
 
 - `apps/api` — FastAPI business API and JWT/tenant dependencies.
@@ -60,6 +62,7 @@ Set-Location apps/api
 ruff check app tests
 ruff format --check app tests
 pytest
+pip-audit
 Set-Location ../..
 npm run lint
 npm run typecheck

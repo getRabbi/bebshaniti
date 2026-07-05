@@ -50,9 +50,16 @@ class Actor:
 class ReleaseUAT:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.api_base = os.getenv(
-            "UAT_API_BASE_URL", "https://bebshaniti-api.vercel.app/api/v1"
-        ).rstrip("/")
+        self.api_base = os.getenv("UAT_API_BASE_URL", "").rstrip("/")
+        if not self.api_base:
+            raise RuntimeError("UAT_API_BASE_URL must target an isolated UAT environment")
+        if (
+            self.api_base.startswith("https://")
+            and os.getenv("UAT_ALLOW_PRODUCTION_MUTATIONS") != "I_UNDERSTAND"
+        ):
+            raise RuntimeError(
+                "Hosted UAT mutates data; set UAT_ALLOW_PRODUCTION_MUTATIONS=I_UNDERSTAND"
+            )
         self.tag = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.engine = get_engine()
         self.actors: dict[str, Actor] = {}

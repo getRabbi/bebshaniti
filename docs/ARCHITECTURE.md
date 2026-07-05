@@ -24,9 +24,9 @@ Clients authenticate through Supabase Auth. They send the access token to FastAP
 - Database composite foreign keys prevent a row from referencing an entity in another organization.
 - Canonical stock, due, supplier payable, cashbook and audit records are append-only.
 
-## Phase 0 behavior
+## Current web release
 
-Health and authenticated identity endpoints are live. Later business routes exist behind JWT and tenant resolution but respond `501` until their named implementation phase. This is deliberate: no empty arrays or generated figures impersonate real production behavior.
+The authenticated web release includes organization onboarding, catalog and inventory, customers and due collection, atomic sales, returns/voids, reports, imports, private product images and audit-log viewing. Supplier purchasing, staff/device activation, offline POS sync, licensing and sourcing remain later phases. No unfinished route returns generated business data.
 
 ## Deployment independence
 
