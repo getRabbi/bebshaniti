@@ -1,19 +1,59 @@
 # ruff: noqa: E501
-from uuid import uuid4
+import asyncio
+import logging
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import require_roles
+from app.core.permissions import require_permission
 from app.core.security import CurrentUser, get_current_user
+from app.core.supabase import get_supabase_admin
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
-from app.schemas import ProductCreate
+from app.schemas import ProductCreate, ProductImageUpdate
 
 router = APIRouter(prefix="/products", tags=["products"])
-catalog_manager = require_roles("owner", "admin", "branch_manager", "inventory_manager")
+product_creator = require_permission("products.create")
+product_updater = require_permission("products.update")
+logger = logging.getLogger(__name__)
+
+
+def validate_image_path(organization_id: UUID, image_path: str | None) -> None:
+    if image_path is None:
+        return
+    prefix = f"{organization_id}/products/"
+    if (
+        not image_path.startswith(prefix)
+        or ".." in image_path
+        or image_path.lower().split(".")[-1]
+        not in {
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+        }
+    ):
+        raise HTTPException(status_code=422, detail="Invalid product image path")
+
+
+async def signed_image_url(path: str | None) -> str | None:
+    if not path:
+        return None
+
+    def create_url() -> str | None:
+        try:
+            result = (
+                get_supabase_admin().storage.from_("product-media").create_signed_url(path, 3600)
+            )
+            return result.get("signedURL") or result.get("signedUrl")
+        except Exception:
+            logger.warning("Product image signing failed", exc_info=True)
+            return None
+
+    return await asyncio.to_thread(create_url)
 
 
 @router.get("")
@@ -26,7 +66,7 @@ async def list_products(
     result = await session.execute(
         text(
             """
-            select p.id, p.name, p.name_bn, p.track_stock, p.status,
+            select p.id, p.name, p.name_bn, p.image_path, p.track_stock, p.status,
                    c.name as category_name, b.name as brand_name,
                    v.id as variant_id, v.variant_name, v.sku, v.barcode,
                    v.purchase_price, v.retail_price, v.wholesale_price, v.mrp,
@@ -61,7 +101,11 @@ async def list_products(
             "limit": limit,
         },
     )
-    return [dict(row) for row in result.mappings().all()]
+    rows = [dict(row) for row in result.mappings().all()]
+    urls = await asyncio.gather(*(signed_image_url(row.get("image_path")) for row in rows))
+    for row, url in zip(rows, urls, strict=True):
+        row["image_url"] = url
+    return rows
 
 
 @router.get("/metadata")
@@ -107,12 +151,13 @@ async def catalog_metadata(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_product(
     payload: ProductCreate,
-    context: OrganizationContext = Depends(catalog_manager),
+    context: OrganizationContext = Depends(product_creator),
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
     try:
         async with session.begin():
+            validate_image_path(context.organization_id, payload.image_path)
             base_unit_id = payload.base_unit_id
             category_id = payload.category_id
             brand_id = payload.brand_id
@@ -230,10 +275,10 @@ async def create_product(
                         insert into public.products
                           (organization_id, category_id, brand_id, base_unit_id,
                            name, name_bn, description, supplier_id, rack_location, notes,
-                           discount_allowed, expiry_tracking, track_stock, vat_rate, created_by)
+                           discount_allowed, expiry_tracking, track_stock, vat_rate, image_path, created_by)
                         values (:organization_id, :category_id, :brand_id, :base_unit_id,
                                 :name, :name_bn, :description, :supplier_id, :rack_location, :notes,
-                                :discount_allowed, :expiry_tracking, :track_stock, :vat_rate, :created_by)
+                                :discount_allowed, :expiry_tracking, :track_stock, :vat_rate, :image_path, :created_by)
                         returning id, name, name_bn, track_stock, status
                         """
                         ),
@@ -252,6 +297,7 @@ async def create_product(
                             "expiry_tracking": payload.expiry_tracking,
                             "track_stock": payload.track_stock,
                             "vat_rate": payload.vat_rate,
+                            "image_path": payload.image_path,
                             "created_by": user.id,
                         },
                     )
@@ -341,3 +387,35 @@ async def create_product(
         await session.rollback()
         raise HTTPException(status_code=409, detail="SKU or barcode already exists") from exc
     return {**dict(product), "variant": dict(variant)}
+
+
+@router.patch("/{product_id}/image")
+async def update_product_image(
+    product_id: UUID,
+    payload: ProductImageUpdate,
+    context: OrganizationContext = Depends(product_updater),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    validate_image_path(context.organization_id, payload.image_path)
+    async with session.begin():
+        row = (
+            (
+                await session.execute(
+                    text(
+                        """
+                    update public.products set image_path=:path
+                    where id=:id and organization_id=:org and status <> 'archived'
+                    returning id, image_path, name
+                    """
+                    ),
+                    {"id": product_id, "org": context.organization_id, "path": payload.image_path},
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+    result = dict(row)
+    result["image_url"] = await signed_image_url(payload.image_path)
+    return result

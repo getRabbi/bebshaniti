@@ -7,7 +7,11 @@ import { Sidebar } from "@/components/sidebar";
 import { TopbarTools } from "@/components/topbar-tools";
 import { createClient } from "@/lib/supabase-server";
 
-export default async function DashboardLayout({ children }: { children: ReactNode }) {
+export default async function DashboardLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const { data } = await (await createClient()).auth.getUser();
   if (!data.user) redirect("/login");
   const email = data.user.email ?? "Signed-in user";
@@ -20,8 +24,20 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           <OrganizationSwitcher />
           <div className="topbar-actions">
             <TopbarTools />
-            <button className="icon-button" type="button" aria-label="Notifications" disabled><Icon name="bell" /></button>
-            <div className="user-chip"><span>{email.slice(0, 1).toUpperCase()}</span><div><strong>{email}</strong><small>Authenticated user</small></div></div>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Notifications"
+              disabled
+            >
+              <Icon name="bell" />
+            </button>
+            <div className="user-chip">
+              <span>{email.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{email}</strong>
+              </div>
+            </div>
           </div>
         </header>
         <main className="content">{children}</main>

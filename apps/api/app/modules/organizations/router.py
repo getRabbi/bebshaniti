@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import effective_permissions
 from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
@@ -159,4 +160,8 @@ async def get_current_organization(
     row = result.mappings().one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    return dict(row)
+    return {
+        **dict(row),
+        "role": context.role,
+        "permissions": sorted(effective_permissions(context)),
+    }

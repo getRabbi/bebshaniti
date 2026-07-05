@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { createClient } from "@/lib/supabase-browser";
+import { useI18n } from "@/lib/i18n";
 
 type Product = {
   variant_id: string;
@@ -21,11 +22,6 @@ type CartLine = Product & {
   unitPrice: number;
   discount: number;
 };
-const money = new Intl.NumberFormat("bn-BD", {
-  style: "currency",
-  currency: "BDT",
-  maximumFractionDigits: 2,
-});
 function orgCookie() {
   return (
     document.cookie
@@ -36,6 +32,12 @@ function orgCookie() {
 }
 
 export function PosSale() {
+  const { t, locale } = useI18n();
+  const money = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "BDT",
+    maximumFractionDigits: 2,
+  });
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [token, setToken] = useState("");
@@ -50,6 +52,8 @@ export function PosSale() {
   const [paidTouched, setPaidTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [accessChecked, setAccessChecked] = useState(false);
   const load = useCallback(async () => {
     try {
       const { data } = await createClient().auth.getSession();
@@ -70,7 +74,7 @@ export function PosSale() {
         return;
       }
       setOrg(id);
-      const [p, c] = await Promise.all([
+      const [p, c, context] = await Promise.all([
         apiRequest<Product[]>(
           "/products?limit=500",
           data.session.access_token,
@@ -81,13 +85,21 @@ export function PosSale() {
           data.session.access_token,
           id,
         ),
+        apiRequest<{ permissions: string[] }>(
+          "/organizations/current",
+          data.session.access_token,
+          id,
+        ),
       ]);
       setProducts(p);
       setCustomers(c);
+      setPermissions(context.permissions);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "POS লোড করা যায়নি।");
+      setError(e instanceof Error ? e.message : t("loadError"));
+    } finally {
+      setAccessChecked(true);
     }
-  }, []);
+  }, [t]);
   useEffect(() => {
     void load();
     input.current?.focus();
@@ -166,7 +178,7 @@ export function PosSale() {
           `/sales/${sale.id}/${action === "print" ? "print" : "memo"}`,
         );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "বিক্রয় সম্পন্ন করা যায়নি।");
+      setError(e instanceof Error ? e.message : t("saveError"));
     } finally {
       setSaving(false);
     }
@@ -181,26 +193,27 @@ export function PosSale() {
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
   });
+  if (accessChecked && !permissions.includes("sales.create")) {
+    return <div className="error module-error">{t("permissionDenied")}</div>;
+  }
   return (
     <>
       <header className="page-header">
         <div>
           <p className="page-eyebrow">FAST POS</p>
-          <h1>নতুন বিক্রয়</h1>
-          <p className="page-description">
-            নাম, SKU বা বারকোড দিয়ে খুঁজুন। Enter চাপলে প্রথম পণ্য কার্টে যাবে।
-          </p>
+          <h1>{t("newSale")}</h1>
+          <p className="page-description">{t("posIntro")}</p>
         </div>
       </header>
       {error ? (
         <div className="error module-error">
-          {error} <button onClick={() => void load()}>আবার চেষ্টা করুন</button>
+          {error} <button onClick={() => void load()}>{t("retry")}</button>
         </div>
       ) : null}
       <div className="pos-layout">
         <section className="panel pos-catalog">
           <label className="pos-search">
-            <span>পণ্য খুঁজুন</span>
+            <span>{t("searchProduct")}</span>
             <input
               ref={input}
               value={query}
@@ -208,7 +221,7 @@ export function PosSale() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && matches[0]) add(matches[0]);
               }}
-              placeholder="পণ্যের নাম / SKU / বারকোড"
+              placeholder={t("productSearchPlaceholder")}
             />
           </label>
           <div className="pos-products">
@@ -220,7 +233,7 @@ export function PosSale() {
                   {p.barcode ? ` · ${p.barcode}` : ""}
                 </span>
                 <small>
-                  {money.format(Number(p.retail_price))} · স্টক{" "}
+                  {money.format(Number(p.retail_price))} · {t("stock")}{" "}
                   {Number(p.stock_quantity || 0)}
                 </small>
               </button>
@@ -229,8 +242,10 @@ export function PosSale() {
         </section>
         <section className="panel pos-cart">
           <div className="panel-header">
-            <h2>কার্ট</h2>
-            <span>{cart.length}টি আইটেম</span>
+            <h2>{t("cart")}</h2>
+            <span>
+              {cart.length} {t("items")}
+            </span>
           </div>
           {cart.length ? (
             <div className="cart-lines">
@@ -241,7 +256,7 @@ export function PosSale() {
                     <small>{line.sku}</small>
                   </div>
                   <input
-                    aria-label="পরিমাণ"
+                    aria-label={t("quantity")}
                     type="number"
                     min="0.0001"
                     step="0.0001"
@@ -257,17 +272,35 @@ export function PosSale() {
                     }
                   />
                   <input
-                    aria-label="মূল্য"
+                    aria-label={t("sellingPrice")}
                     type="number"
                     min="0"
                     step="0.01"
                     value={line.unitPrice}
+                    disabled={!permissions.includes("sales.price_override")}
                     onChange={(e) =>
                       setCart((c) =>
                         c.map((x) =>
                           x.variant_id === line.variant_id
                             ? { ...x, unitPrice: Number(e.target.value) }
                             : x,
+                        ),
+                      )
+                    }
+                  />
+                  <input
+                    aria-label={t("discount")}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={line.discount}
+                    disabled={!permissions.includes("sales.discount")}
+                    onChange={(event) =>
+                      setCart((current) =>
+                        current.map((item) =>
+                          item.variant_id === line.variant_id
+                            ? { ...item, discount: Number(event.target.value) }
+                            : item,
                         ),
                       )
                     }
@@ -291,18 +324,18 @@ export function PosSale() {
             </div>
           ) : (
             <div className="empty-state">
-              <h2>কার্ট খালি</h2>
-              <p>বাম দিক থেকে পণ্য যোগ করুন।</p>
+              <h2>{t("emptyCart")}</h2>
+              <p>{t("addFromLeft")}</p>
             </div>
           )}
           <div className="checkout-fields">
             <label>
-              <span>কাস্টমার (ঐচ্ছিক)</span>
+              <span>{t("optionalCustomer")}</span>
               <select
                 value={customer}
                 onChange={(e) => setCustomer(e.target.value)}
               >
-                <option value="">ওয়াক-ইন কাস্টমার</option>
+                <option value="">{t("walkIn")}</option>
                 {customers.map((c) => (
                   <option value={c.id} key={c.id}>
                     {c.name} {c.phone ? `· ${c.phone}` : ""}
@@ -311,20 +344,20 @@ export function PosSale() {
               </select>
             </label>
             <label>
-              <span>পেমেন্ট</span>
+              <span>{t("payment")}</span>
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
               >
-                <option value="cash">ক্যাশ</option>
-                <option value="bkash">বিকাশ</option>
-                <option value="nagad">নগদ</option>
-                <option value="card">কার্ড</option>
-                <option value="bank">ব্যাংক</option>
+                <option value="cash">Cash</option>
+                <option value="bkash">bKash</option>
+                <option value="nagad">Nagad</option>
+                <option value="card">Card</option>
+                <option value="bank">Bank</option>
               </select>
             </label>
             <label>
-              <span>পরিশোধ</span>
+              <span>{t("paidAmount")}</span>
               <input
                 type="number"
                 min="0"
@@ -340,16 +373,14 @@ export function PosSale() {
           </div>
           <div className="checkout-total">
             <span>
-              মোট <strong>{money.format(total)}</strong>
+              {t("grandTotal")} <strong>{money.format(total)}</strong>
             </span>
             <span className={due > 0 ? "due-total" : ""}>
-              বাকি <strong>{money.format(due)}</strong>
+              {t("due")} <strong>{money.format(due)}</strong>
             </span>
           </div>
           {due > 0 && !customer ? (
-            <p className="price-warning">
-              বাকি বিক্রয়ের জন্য কাস্টমার নির্বাচন করুন।
-            </p>
+            <p className="price-warning">{t("dueCustomerWarning")}</p>
           ) : null}
           <div className="pos-actions">
             <button
@@ -357,21 +388,21 @@ export function PosSale() {
               disabled={saving || !cart.length || Boolean(due && !customer)}
               onClick={() => void complete("new")}
             >
-              সম্পন্ন + নতুন বিক্রয়
+              {t("completeNew")}
             </button>
             <button
               className="button secondary"
               disabled={saving || !cart.length || Boolean(due && !customer)}
               onClick={() => void complete("print")}
             >
-              সম্পন্ন + প্রিন্ট
+              {t("completePrint")}
             </button>
             <button
               className="button"
               disabled={saving || !cart.length || Boolean(due && !customer)}
               onClick={() => void complete("memo")}
             >
-              {saving ? "সম্পন্ন হচ্ছে…" : "বিক্রয় সম্পন্ন করুন"}
+              {saving ? t("completing") : t("completeSale")}
             </button>
           </div>
         </section>

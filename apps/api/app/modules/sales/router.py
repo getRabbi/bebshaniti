@@ -1,18 +1,22 @@
 # ruff: noqa: E501
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import has_permission, require_permission
 from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
-from app.schemas import SaleCreate
+from app.schemas import SaleCreate, SaleReturnCreate, SaleVoidCreate
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+sale_creator = require_permission("sales.create")
+sale_returner = require_permission("sales.return")
+sale_voider = require_permission("sales.void")
 
 
 @router.get("")
@@ -25,7 +29,12 @@ async def list_sales(
         text(
             """
             select s.id, s.invoice_no, s.branch_id, b.name as branch_name,
-                   s.customer_id, c.name as customer_name, s.sale_type, s.status::text,
+                   s.customer_id, c.name as customer_name, s.sale_type,
+                   case
+                     when exists(select 1 from public.sale_voids sv where sv.sale_id=s.id) then 'void'
+                     when coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0) >= s.grand_total then 'returned'
+                     when exists(select 1 from public.sale_returns sr where sr.sale_id=s.id) then 'partially_returned'
+                     else s.status::text end as status,
                    s.grand_total, s.paid_total, s.due_total, s.profit_total,
                    s.sold_at, s.created_at, p.full_name as cashier_name
             from public.sales s
@@ -57,7 +66,12 @@ async def sale_detail(
         (
             await session.execute(
                 text("""
-        select s.id,s.invoice_no,s.memo_no,s.sale_type,s.status::text,s.payment_status,
+        select s.id,s.invoice_no,s.memo_no,s.sale_type,s.status::text as original_status,
+               case
+                 when exists(select 1 from public.sale_voids sv where sv.sale_id=s.id) then 'void'
+                 when coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0) >= s.grand_total then 'returned'
+                 when exists(select 1 from public.sale_returns sr where sr.sale_id=s.id) then 'partially_returned'
+                 else s.status::text end as status,s.payment_status,
                s.subtotal,s.discount_total,s.vat_total,s.grand_total,s.paid_total,s.due_total,
                s.profit_total,s.sold_at,s.completed_at,s.notes,s.footer_note,
                b.id as branch_id,b.name as branch_name,b.address as branch_address,b.phone as branch_phone,
@@ -98,17 +112,44 @@ async def sale_detail(
     """),
         {"id": sale_id, "org": context.organization_id},
     )
+    returns = await session.execute(
+        text(
+            """
+            select id,return_no,reason,return_total,due_adjustment,refund_amount,
+                   refund_method,created_at from public.sale_returns
+            where sale_id=:id and organization_id=:org order by created_at
+            """
+        ),
+        {"id": sale_id, "org": context.organization_id},
+    )
+    void_event = (
+        (
+            await session.execute(
+                text(
+                    """
+                select id,reason,due_adjustment,refund_amount,refund_method,created_at
+                from public.sale_voids where sale_id=:id and organization_id=:org
+                """
+                ),
+                {"id": sale_id, "org": context.organization_id},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     return {
         **dict(sale),
         "items": [dict(row) for row in items.mappings().all()],
         "payments": [dict(row) for row in payments.mappings().all()],
+        "returns": [dict(row) for row in returns.mappings().all()],
+        "void_event": dict(void_event) if void_event else None,
     }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_sale(
     payload: SaleCreate,
-    context: OrganizationContext = Depends(get_organization_context),
+    context: OrganizationContext = Depends(sale_creator),
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
@@ -161,6 +202,14 @@ async def create_sale(
                 else variant["retail_price"]
             )
             unit_price = item.unit_price if item.unit_price is not None else Decimal(default_price)
+            if (
+                item.unit_price is not None
+                and item.unit_price != Decimal(default_price)
+                and not has_permission(context, "sales.price_override")
+            ):
+                raise HTTPException(status_code=403, detail="এই কাজটি করার অনুমতি আপনার নেই।")
+            if item.discount > 0 and not has_permission(context, "sales.discount"):
+                raise HTTPException(status_code=403, detail="এই কাজটি করার অনুমতি আপনার নেই।")
             gross = item.quantity * unit_price
             if item.discount > gross:
                 raise HTTPException(status_code=422, detail="Item discount exceeds its gross value")
@@ -368,3 +417,410 @@ async def create_sale(
             {"id": sale["id"]},
         )
     return {**dict(sale), "status": "completed"}
+
+
+@router.post("/{sale_id}/returns", status_code=status.HTTP_201_CREATED)
+async def return_sale_items(
+    sale_id: UUID,
+    payload: SaleReturnCreate,
+    context: OrganizationContext = Depends(sale_returner),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    async with session.begin():
+        sale = (
+            (
+                await session.execute(
+                    text(
+                        """
+                    select id,branch_id,customer_id,grand_total,paid_total,due_total
+                    from public.sales where id=:id and organization_id=:org and status='completed'
+                      and (cast(:branch as uuid) is null or branch_id=:branch) for update
+                    """
+                    ),
+                    {"id": sale_id, "org": context.organization_id, "branch": context.branch_id},
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if sale is None:
+            raise HTTPException(status_code=404, detail="Completed sale not found")
+        if (
+            await session.execute(
+                text("select 1 from public.sale_voids where sale_id=:id and organization_id=:org"),
+                {"id": sale_id, "org": context.organization_id},
+            )
+        ).scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Voided sale cannot be returned")
+
+        requested = {item.sale_item_id: item.quantity for item in payload.items}
+        items_result = await session.execute(
+            text(
+                """
+                select si.id,si.product_variant_id,si.description,si.quantity,si.unit_price,
+                       si.purchase_cost,si.line_total,p.track_stock,
+                       coalesce((select sum(sri.quantity) from public.sale_return_items sri
+                         join public.sale_returns sr on sr.id=sri.sale_return_id
+                         where sri.sale_item_id=si.id and sr.sale_id=:sale),0) returned_quantity
+                from public.sale_items si
+                join public.product_variants pv on pv.id=si.product_variant_id
+                join public.products p on p.id=pv.product_id
+                where si.sale_id=:sale and si.organization_id=:org
+                  and si.id = any(cast(:item_ids as uuid[]))
+                """
+            ),
+            {"sale": sale_id, "org": context.organization_id, "item_ids": list(requested)},
+        )
+        item_rows = list(items_result.mappings().all())
+        if len(item_rows) != len(requested):
+            raise HTTPException(status_code=422, detail="A return item is invalid")
+        calculated: list[tuple[RowMapping, Decimal, Decimal]] = []
+        return_total = Decimal("0")
+        for row in item_rows:
+            quantity = requested[row["id"]]
+            remaining = Decimal(row["quantity"]) - Decimal(row["returned_quantity"])
+            if quantity > remaining:
+                raise HTTPException(status_code=422, detail="Return quantity exceeds sold quantity")
+            line_total = (
+                Decimal(row["line_total"]) / Decimal(row["quantity"]) * quantity
+            ).quantize(Decimal("0.0001"))
+            return_total += line_total
+            calculated.append((row, quantity, line_total))
+
+        prior = (
+            (
+                await session.execute(
+                    text(
+                        """
+                    select coalesce(sum(due_adjustment),0) due,coalesce(sum(refund_amount),0) refund
+                    from public.sale_returns where sale_id=:sale and organization_id=:org
+                    """
+                    ),
+                    {"sale": sale_id, "org": context.organization_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        remaining_due = max(Decimal("0"), Decimal(sale["due_total"]) - Decimal(prior["due"]))
+        remaining_paid = max(Decimal("0"), Decimal(sale["paid_total"]) - Decimal(prior["refund"]))
+        due_adjustment = min(return_total, remaining_due)
+        refund_amount = return_total - due_adjustment
+        if refund_amount > remaining_paid:
+            raise HTTPException(status_code=409, detail="Return exceeds the remaining sale value")
+        return_no = f"RET-{uuid4().hex[:10].upper()}"
+        return_id = (
+            await session.execute(
+                text(
+                    """
+                    insert into public.sale_returns
+                      (organization_id,branch_id,sale_id,return_no,reason,return_total,
+                       due_adjustment,refund_amount,refund_method,created_by)
+                    values (:org,:branch,:sale,:number,:reason,:total,:due,:refund,
+                            case when :refund>0 then :method else null end,:user) returning id
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "sale": sale_id,
+                    "number": return_no,
+                    "reason": payload.reason.strip(),
+                    "total": return_total,
+                    "due": due_adjustment,
+                    "refund": refund_amount,
+                    "method": payload.refund_method,
+                    "user": user.id,
+                },
+            )
+        ).scalar_one()
+        for row, quantity, line_total in calculated:
+            await session.execute(
+                text(
+                    """
+                    insert into public.sale_return_items
+                      (organization_id,branch_id,sale_return_id,sale_item_id,product_variant_id,
+                       description,quantity,unit_price,purchase_cost,line_total)
+                    values (:org,:branch,:return,:item,:variant,:description,:quantity,
+                            :price,:cost,:total)
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "return": return_id,
+                    "item": row["id"],
+                    "variant": row["product_variant_id"],
+                    "description": row["description"],
+                    "quantity": quantity,
+                    "price": row["unit_price"],
+                    "cost": row["purchase_cost"],
+                    "total": line_total,
+                },
+            )
+            if row["track_stock"]:
+                await session.execute(
+                    text(
+                        """
+                        insert into public.stock_movements
+                          (organization_id,branch_id,product_variant_id,movement_type,
+                           quantity_change,unit_cost,reference_type,reference_id,note,created_by)
+                        values (:org,:branch,:variant,'sale_return',:quantity,:cost,
+                                'sale_return',:return,:reason,:user)
+                        """
+                    ),
+                    {
+                        "org": context.organization_id,
+                        "branch": sale["branch_id"],
+                        "variant": row["product_variant_id"],
+                        "quantity": quantity,
+                        "cost": row["purchase_cost"],
+                        "return": return_id,
+                        "reason": payload.reason.strip(),
+                        "user": user.id,
+                    },
+                )
+        if due_adjustment > 0 and sale["customer_id"]:
+            await session.execute(
+                text(
+                    """
+                    insert into public.customer_ledger_entries
+                      (organization_id,branch_id,customer_id,entry_type,credit,
+                       reference_type,reference_id,note,created_by)
+                    values (:org,:branch,:customer,'return',:amount,'sale_return',
+                            :return,:reason,:user)
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "customer": sale["customer_id"],
+                    "amount": due_adjustment,
+                    "return": return_id,
+                    "reason": payload.reason.strip(),
+                    "user": user.id,
+                },
+            )
+        if refund_amount > 0:
+            payment_id = (
+                await session.execute(
+                    text(
+                        """
+                        insert into public.payments
+                          (organization_id,branch_id,payment_type,method,amount,reference_no,
+                           sale_id,customer_id,received_by)
+                        values (:org,:branch,'refund',:method,:amount,:reference,
+                                :sale,:customer,:user) returning id
+                        """
+                    ),
+                    {
+                        "org": context.organization_id,
+                        "branch": sale["branch_id"],
+                        "method": payload.refund_method,
+                        "amount": refund_amount,
+                        "reference": return_no,
+                        "sale": sale_id,
+                        "customer": sale["customer_id"],
+                        "user": user.id,
+                    },
+                )
+            ).scalar_one()
+            await session.execute(
+                text(
+                    """
+                    insert into public.cashbook_entries
+                      (organization_id,branch_id,entry_type,direction,amount,method,
+                       reference_type,reference_id,note,created_by)
+                    values (:org,:branch,'refund','out',:amount,:method,'payment',
+                            :payment,:reason,:user)
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "amount": refund_amount,
+                    "method": payload.refund_method,
+                    "payment": payment_id,
+                    "reason": payload.reason.strip(),
+                    "user": user.id,
+                },
+            )
+    return {
+        "id": return_id,
+        "return_no": return_no,
+        "return_total": return_total,
+        "due_adjustment": due_adjustment,
+        "refund_amount": refund_amount,
+    }
+
+
+@router.post("/{sale_id}/void", status_code=status.HTTP_201_CREATED)
+async def void_sale(
+    sale_id: UUID,
+    payload: SaleVoidCreate,
+    context: OrganizationContext = Depends(sale_voider),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    async with session.begin():
+        sale = (
+            (
+                await session.execute(
+                    text(
+                        """
+                    select id,branch_id,customer_id,paid_total,due_total from public.sales
+                    where id=:id and organization_id=:org and status='completed'
+                      and (cast(:branch as uuid) is null or branch_id=:branch) for update
+                    """
+                    ),
+                    {"id": sale_id, "org": context.organization_id, "branch": context.branch_id},
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if sale is None:
+            raise HTTPException(status_code=404, detail="Completed sale not found")
+        event_exists = (
+            await session.execute(
+                text(
+                    """
+                    select exists(select 1 from public.sale_voids
+                                    where sale_id=:sale and organization_id=:org)
+                      or exists(select 1 from public.sale_returns
+                                where sale_id=:sale and organization_id=:org)
+                    """
+                ),
+                {"sale": sale_id, "org": context.organization_id},
+            )
+        ).scalar_one()
+        if event_exists:
+            raise HTTPException(status_code=409, detail="Sale already has a void or return event")
+        void_id = (
+            await session.execute(
+                text(
+                    """
+                    insert into public.sale_voids
+                      (organization_id,branch_id,sale_id,reason,due_adjustment,refund_amount,
+                       refund_method,created_by)
+                    values (:org,:branch,:sale,:reason,:due,:refund,
+                            case when :refund>0 then :method else null end,:user) returning id
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "sale": sale_id,
+                    "reason": payload.reason.strip(),
+                    "due": sale["due_total"],
+                    "refund": sale["paid_total"],
+                    "method": payload.refund_method,
+                    "user": user.id,
+                },
+            )
+        ).scalar_one()
+        items = await session.execute(
+            text(
+                """
+                select si.product_variant_id,si.quantity,si.purchase_cost,p.track_stock
+                from public.sale_items si join public.product_variants pv on pv.id=si.product_variant_id
+                join public.products p on p.id=pv.product_id
+                where si.sale_id=:sale and si.organization_id=:org
+                """
+            ),
+            {"sale": sale_id, "org": context.organization_id},
+        )
+        for item in items.mappings().all():
+            if item["track_stock"]:
+                await session.execute(
+                    text(
+                        """
+                        insert into public.stock_movements
+                          (organization_id,branch_id,product_variant_id,movement_type,
+                           quantity_change,unit_cost,reference_type,reference_id,note,created_by)
+                        values (:org,:branch,:variant,'sale_return',:quantity,:cost,
+                                'sale_void',:void,:reason,:user)
+                        """
+                    ),
+                    {
+                        "org": context.organization_id,
+                        "branch": sale["branch_id"],
+                        "variant": item["product_variant_id"],
+                        "quantity": item["quantity"],
+                        "cost": item["purchase_cost"],
+                        "void": void_id,
+                        "reason": payload.reason.strip(),
+                        "user": user.id,
+                    },
+                )
+        if Decimal(sale["due_total"]) > 0 and sale["customer_id"]:
+            await session.execute(
+                text(
+                    """
+                    insert into public.customer_ledger_entries
+                      (organization_id,branch_id,customer_id,entry_type,credit,
+                       reference_type,reference_id,note,created_by)
+                    values (:org,:branch,:customer,'return',:amount,'sale_void',:void,:reason,:user)
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "customer": sale["customer_id"],
+                    "amount": sale["due_total"],
+                    "void": void_id,
+                    "reason": payload.reason.strip(),
+                    "user": user.id,
+                },
+            )
+        if Decimal(sale["paid_total"]) > 0:
+            payment_id = (
+                await session.execute(
+                    text(
+                        """
+                        insert into public.payments
+                          (organization_id,branch_id,payment_type,method,amount,reference_no,
+                           sale_id,customer_id,received_by)
+                        values (:org,:branch,'refund',:method,:amount,:reference,
+                                :sale,:customer,:user) returning id
+                        """
+                    ),
+                    {
+                        "org": context.organization_id,
+                        "branch": sale["branch_id"],
+                        "method": payload.refund_method,
+                        "amount": sale["paid_total"],
+                        "reference": f"VOID-{str(void_id)[:8]}",
+                        "sale": sale_id,
+                        "customer": sale["customer_id"],
+                        "user": user.id,
+                    },
+                )
+            ).scalar_one()
+            await session.execute(
+                text(
+                    """
+                    insert into public.cashbook_entries
+                      (organization_id,branch_id,entry_type,direction,amount,method,
+                       reference_type,reference_id,note,created_by)
+                    values (:org,:branch,'refund','out',:amount,:method,'payment',
+                            :payment,:reason,:user)
+                    """
+                ),
+                {
+                    "org": context.organization_id,
+                    "branch": sale["branch_id"],
+                    "amount": sale["paid_total"],
+                    "method": payload.refund_method,
+                    "payment": payment_id,
+                    "reason": payload.reason.strip(),
+                    "user": user.id,
+                },
+            )
+    return {
+        "id": void_id,
+        "status": "void",
+        "refund_amount": sale["paid_total"],
+        "due_adjustment": sale["due_total"],
+    }

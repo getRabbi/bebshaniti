@@ -1,28 +1,65 @@
 # ruff: noqa: E501
-from fastapi import APIRouter, Depends, Query
+from datetime import date
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import require_permission
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+report_viewer = require_permission("reports.view")
+
+
+async def report_branch(
+    requested: UUID | None, context: OrganizationContext, session: AsyncSession
+) -> UUID | None:
+    if context.branch_id:
+        if requested and requested != context.branch_id:
+            raise HTTPException(status_code=403, detail="এই শাখার রিপোর্ট দেখার অনুমতি নেই।")
+        return context.branch_id
+    if requested:
+        exists = (
+            await session.execute(
+                text(
+                    "select 1 from public.branches where id=:id and organization_id=:org and is_active"
+                ),
+                {"id": requested, "org": context.organization_id},
+            )
+        ).scalar_one_or_none()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Branch not found")
+    return requested
 
 
 async def summary_query(context: OrganizationContext, session: AsyncSession) -> dict[str, object]:
     result = await session.execute(
         text("""
         select
-          coalesce((select sum(grand_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) sales_today,
-          coalesce((select sum(profit_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) profit_today,
-          coalesce((select sum(grand_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=date_trunc('month',now()) and (cast(:branch as uuid) is null or branch_id=:branch)),0) sales_this_month,
-          coalesce((select sum(profit_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=date_trunc('month',now()) and (cast(:branch as uuid) is null or branch_id=:branch)),0) gross_profit,
-          coalesce((select count(*) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) transactions_today,
+          coalesce((select sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0))
+            from public.sales s where s.organization_id=:org and s.status='completed' and s.sold_at>=current_date
+            and (cast(:branch as uuid) is null or s.branch_id=:branch)
+            and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)),0) sales_today,
+          coalesce((select sum(s.profit_total-coalesce((select sum(sri.line_total-sri.purchase_cost*sri.quantity)
+            from public.sale_return_items sri join public.sale_returns sr on sr.id=sri.sale_return_id where sr.sale_id=s.id),0))
+            from public.sales s where s.organization_id=:org and s.status='completed' and s.sold_at>=current_date
+            and (cast(:branch as uuid) is null or s.branch_id=:branch)
+            and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)),0) profit_today,
+          coalesce((select sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0))
+            from public.sales s where s.organization_id=:org and s.status='completed' and s.sold_at>=date_trunc('month',now())
+            and (cast(:branch as uuid) is null or s.branch_id=:branch)
+            and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)),0) sales_this_month,
+          coalesce((select sum(s.profit_total-coalesce((select sum(sri.line_total-sri.purchase_cost*sri.quantity)
+            from public.sale_return_items sri join public.sale_returns sr on sr.id=sri.sale_return_id where sr.sale_id=s.id),0))
+            from public.sales s where s.organization_id=:org and s.status='completed' and s.sold_at>=date_trunc('month',now())
+            and (cast(:branch as uuid) is null or s.branch_id=:branch)
+            and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)),0) gross_profit,
+          coalesce((select count(*) from public.sales s where s.organization_id=:org
+            and s.status='completed' and s.sold_at>=current_date and (cast(:branch as uuid) is null or s.branch_id=:branch)
+            and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)),0) transactions_today,
           coalesce((select sum(debit-credit) from public.customer_ledger_entries where organization_id=:org
             and (cast(:branch as uuid) is null or branch_id=:branch)),0) receivable_due,
           coalesce((select count(*) from public.inventory_balances ib join public.product_variants pv on pv.id=ib.product_variant_id
@@ -31,7 +68,7 @@ async def summary_query(context: OrganizationContext, session: AsyncSession) -> 
             and (cast(:branch as uuid) is null or branch_id=:branch)),0) inventory_value,
           coalesce((select count(*) from public.products where organization_id=:org and status='active'),0) total_products,
           coalesce((select count(*) from public.customers where organization_id=:org and status='active'),0) total_customers,
-          coalesce((select sum(amount) from public.payments where organization_id=:org and paid_at>=current_date
+          coalesce((select sum(case when payment_type='refund' then -amount else amount end) from public.payments where organization_id=:org and paid_at>=current_date
             and (cast(:branch as uuid) is null or branch_id=:branch)),0) collection_today
     """),
         {"org": context.organization_id, "branch": context.branch_id},
@@ -52,38 +89,79 @@ async def report_summary(
 @router.get("/sales")
 async def sales_report(
     days: int = Query(default=30, ge=1, le=366),
-    context: OrganizationContext = Depends(get_organization_context),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    branch_id: UUID | None = None,
+    payment_method: str | None = Query(default=None, max_length=20),
+    context: OrganizationContext = Depends(report_viewer),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="Invalid date range")
+    branch = await report_branch(branch_id, context, session)
     daily = await session.execute(
         text("""
-      select sold_at::date as date,count(*) as transactions,sum(grand_total) as sales,
-             sum(profit_total) as profit,sum(due_total) as due
-      from public.sales where organization_id=:org and status='completed'
-        and sold_at>=current_date-(:days-1)*interval '1 day'
-        and (cast(:branch as uuid) is null or branch_id=:branch)
-      group by sold_at::date order by date
+      select s.sold_at::date as date,count(*) as transactions,
+             sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0)) as sales,
+             sum(s.profit_total-coalesce((select sum(sri.line_total-sri.purchase_cost*sri.quantity)
+               from public.sale_return_items sri join public.sale_returns sr on sr.id=sri.sale_return_id where sr.sale_id=s.id),0)) as profit,
+             sum(s.due_total-coalesce((select sum(sr.due_adjustment) from public.sale_returns sr where sr.sale_id=s.id),0)) as due
+      from public.sales s where s.organization_id=:org and s.status='completed'
+        and s.sold_at>=coalesce(cast(:date_from as date),current_date-(:days-1)*interval '1 day')
+        and (cast(:date_to as date) is null or s.sold_at<cast(:date_to as date)+interval '1 day')
+        and (cast(:branch as uuid) is null or s.branch_id=:branch)
+        and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)
+        and (cast(:method as text) is null or exists(select 1 from public.payments p where p.sale_id=s.id and p.method=:method))
+      group by s.sold_at::date order by date
     """),
-        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+        {
+            "org": context.organization_id,
+            "branch": branch,
+            "days": days,
+            "date_from": date_from,
+            "date_to": date_to,
+            "method": payment_method,
+        },
     )
     payment = await session.execute(
         text("""
-      select method,sum(amount) as amount,count(*) as transactions from public.payments
-      where organization_id=:org and paid_at>=current_date-(:days-1)*interval '1 day'
-        and (cast(:branch as uuid) is null or branch_id=:branch) group by method order by amount desc
+      select method,sum(case when payment_type='refund' then -amount else amount end) as amount,count(*) as transactions from public.payments
+      where organization_id=:org and paid_at>=coalesce(cast(:date_from as date),current_date-(:days-1)*interval '1 day')
+        and (cast(:date_to as date) is null or paid_at<cast(:date_to as date)+interval '1 day')
+        and (cast(:branch as uuid) is null or branch_id=:branch)
+        and (cast(:method as text) is null or method=:method) group by method order by amount desc
     """),
-        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+        {
+            "org": context.organization_id,
+            "branch": branch,
+            "days": days,
+            "date_from": date_from,
+            "date_to": date_to,
+            "method": payment_method,
+        },
     )
     best = await session.execute(
         text("""
-      select si.description,sum(si.quantity) as quantity,sum(si.line_total) as sales
+      select si.description,
+             sum(si.quantity-coalesce((select sum(sri.quantity) from public.sale_return_items sri where sri.sale_item_id=si.id),0)) as quantity,
+             sum(si.line_total-coalesce((select sum(sri.line_total) from public.sale_return_items sri where sri.sale_item_id=si.id),0)) as sales
       from public.sale_items si join public.sales s on s.id=si.sale_id
       where si.organization_id=:org and s.status='completed'
-        and s.sold_at>=current_date-(:days-1)*interval '1 day'
+        and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)
+        and s.sold_at>=coalesce(cast(:date_from as date),current_date-(:days-1)*interval '1 day')
+        and (cast(:date_to as date) is null or s.sold_at<cast(:date_to as date)+interval '1 day')
         and (cast(:branch as uuid) is null or si.branch_id=:branch)
+        and (cast(:method as text) is null or exists(select 1 from public.payments p where p.sale_id=s.id and p.method=:method))
       group by si.description order by quantity desc limit 10
     """),
-        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+        {
+            "org": context.organization_id,
+            "branch": branch,
+            "days": days,
+            "date_from": date_from,
+            "date_to": date_to,
+            "method": payment_method,
+        },
     )
     return {
         "daily": [dict(r) for r in daily.mappings().all()],
@@ -94,9 +172,11 @@ async def sales_report(
 
 @router.get("/inventory")
 async def inventory_report(
-    context: OrganizationContext = Depends(get_organization_context),
+    branch_id: UUID | None = None,
+    context: OrganizationContext = Depends(report_viewer),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    branch = await report_branch(branch_id, context, session)
     rows = await session.execute(
         text("""
       select p.name,p.name_bn,pv.sku,coalesce(sum(ib.quantity),0) quantity,
@@ -108,7 +188,7 @@ async def inventory_report(
       where p.organization_id=:org and p.status='active'
       group by p.name,p.name_bn,pv.sku,pv.reorder_level order by stock_value desc
     """),
-        {"org": context.organization_id, "branch": context.branch_id},
+        {"org": context.organization_id, "branch": branch},
     )
     items = [dict(r) for r in rows.mappings().all()]
     return {
@@ -120,9 +200,11 @@ async def inventory_report(
 
 @router.get("/due")
 async def due_report(
-    context: OrganizationContext = Depends(get_organization_context),
+    branch_id: UUID | None = None,
+    context: OrganizationContext = Depends(report_viewer),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    branch = await report_branch(branch_id, context, session)
     rows = await session.execute(
         text("""
       select c.id,c.name,c.phone,c.credit_limit,sum(l.debit-l.credit) balance,
@@ -132,7 +214,7 @@ async def due_report(
       group by c.id,c.name,c.phone,c.credit_limit having sum(l.debit-l.credit)>0
       order by balance desc
     """),
-        {"org": context.organization_id, "branch": context.branch_id},
+        {"org": context.organization_id, "branch": branch},
     )
     customers = [dict(r) for r in rows.mappings().all()]
     return {"customers": customers, "receivable_due": sum(float(r["balance"]) for r in customers)}
@@ -141,20 +223,41 @@ async def due_report(
 @router.get("/profit")
 async def profit_report(
     days: int = Query(default=30, ge=1, le=366),
-    context: OrganizationContext = Depends(get_organization_context),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    branch_id: UUID | None = None,
+    payment_method: str | None = Query(default=None, max_length=20),
+    context: OrganizationContext = Depends(report_viewer),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="Invalid date range")
+    branch = await report_branch(branch_id, context, session)
     result = await session.execute(
         text("""
-      select coalesce(sum(subtotal-discount_total),0) net_sales,
-             coalesce(sum(profit_total),0) gross_profit,
-             coalesce(sum(vat_total),0) tax_total,
-             case when sum(subtotal-discount_total)>0 then
-               round(sum(profit_total)/sum(subtotal-discount_total)*100,2) else 0 end profit_margin
-      from public.sales where organization_id=:org and status='completed'
-        and sold_at>=current_date-(:days-1)*interval '1 day'
-        and (cast(:branch as uuid) is null or branch_id=:branch)
+      select coalesce(sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0)),0) net_sales,
+             coalesce(sum(s.profit_total-coalesce((select sum(sri.line_total-sri.purchase_cost*sri.quantity)
+               from public.sale_return_items sri join public.sale_returns sr on sr.id=sri.sale_return_id where sr.sale_id=s.id),0)),0) gross_profit,
+             coalesce(sum(s.vat_total * (1 - coalesce((select sum(sr.return_total)
+               from public.sale_returns sr where sr.sale_id=s.id),0) / nullif(s.grand_total,0))),0) tax_total,
+             case when sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0))>0 then
+               round(sum(s.profit_total-coalesce((select sum(sri.line_total-sri.purchase_cost*sri.quantity)
+                 from public.sale_return_items sri join public.sale_returns sr on sr.id=sri.sale_return_id where sr.sale_id=s.id),0)) /
+                 sum(s.grand_total-coalesce((select sum(sr.return_total) from public.sale_returns sr where sr.sale_id=s.id),0))*100,2) else 0 end profit_margin
+      from public.sales s where s.organization_id=:org and s.status='completed'
+        and s.sold_at>=coalesce(cast(:date_from as date),current_date-(:days-1)*interval '1 day')
+        and (cast(:date_to as date) is null or s.sold_at<cast(:date_to as date)+interval '1 day')
+        and (cast(:branch as uuid) is null or s.branch_id=:branch)
+        and not exists(select 1 from public.sale_voids sv where sv.sale_id=s.id)
+        and (cast(:method as text) is null or exists(select 1 from public.payments p where p.sale_id=s.id and p.method=:method))
     """),
-        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+        {
+            "org": context.organization_id,
+            "branch": branch,
+            "days": days,
+            "date_from": date_from,
+            "date_to": date_to,
+            "method": payment_method,
+        },
     )
     return dict(result.mappings().one())

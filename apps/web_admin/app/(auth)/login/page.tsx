@@ -1,5 +1,88 @@
 "use client";
 import Link from "next/link";
-import {FormEvent,useState} from "react";
-import {createClient} from "@/lib/supabase-browser";
-export default function LoginPage(){const[error,setError]=useState<string|null>(null);const[pending,setPending]=useState(false);async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setPending(true);setError(null);const form=new FormData(event.currentTarget);const{error:authError}=await createClient().auth.signInWithPassword({email:String(form.get("email")),password:String(form.get("password"))});if(authError){if(process.env.NODE_ENV!=="production")console.error(authError);setError("ইমেইল বা পাসওয়ার্ড সঠিক নয়।");setPending(false);return;}location.assign("/dashboard");}return <main className="auth-shell"><section className="auth-story"><div className="auth-brand"><span className="auth-brand-mark">B</span><span>ব্যবসানীতি<small>Business OS</small></span></div><div className="auth-message"><p className="auth-kicker">নিরাপদ ব্যবসা ওয়ার্কস্পেস</p><h2>ব্যবসার নিয়ন্ত্রণ, আপনার হাতে।</h2><p>বিক্রয়, স্টক, কাস্টমার ও বাকি—এক জায়গায় নিরাপদে পরিচালনা করুন।</p></div><div className="auth-points"><span>Tenant isolation</span><span>Role permission</span><span>Audit ready</span></div></section><section className="auth-form-side"><form className="auth-card" onSubmit={submit}><p className="page-eyebrow">অ্যাডমিন পোর্টাল</p><h1>লগইন করুন</h1><p className="auth-intro">আপনার ব্যবসা ওয়ার্কস্পেসের অ্যাকাউন্ট ব্যবহার করুন।</p><label className="field"><span>ইমেইল</span><input name="email" type="email" autoComplete="email" required/></label><label className="field"><span>পাসওয়ার্ড</span><input name="password" type="password" autoComplete="current-password" required/></label>{error?<p className="error" role="alert">{error}</p>:null}<button className="button auth-submit" disabled={pending}>{pending?"লগইন হচ্ছে…":"নিরাপদে লগইন"}</button><p className="auth-switch">নতুন ব্যবসা? <Link href="/register">অ্যাকাউন্ট তৈরি করুন</Link></p></form></section></main>}
+import { FormEvent, useState } from "react";
+import { useI18n } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase-browser";
+export default function LoginPage() {
+  const { t, locale, setLocale } = useI18n();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const { error: authError } = await createClient().auth.signInWithPassword({
+      email: String(form.get("email")),
+      password: String(form.get("password")),
+    });
+    if (authError) {
+      if (process.env.NODE_ENV !== "production") console.error(authError);
+      setError(t("permissionDenied"));
+      setPending(false);
+      return;
+    }
+    location.assign("/dashboard");
+  }
+  return (
+    <main className="auth-shell">
+      <section className="auth-story">
+        <div className="auth-brand">
+          <span className="auth-brand-mark">B</span>
+          <span>
+            BebshaNiti<small>Business OS</small>
+          </span>
+        </div>
+        <div className="auth-message">
+          <p className="auth-kicker">{t("secureWorkspace")}</p>
+          <h2>{t("loginTitle")}</h2>
+          <p>{t("loginIntro")}</p>
+        </div>
+        <div className="auth-points">
+          <span>{t("tenantIsolation")}</span>
+          <span>{t("rolePermission")}</span>
+          <span>{t("auditReady")}</span>
+        </div>
+      </section>
+      <section className="auth-form-side">
+        <form className="auth-card" onSubmit={submit}>
+          <label className="language-switch auth-language">
+            {t("language")}
+            <select
+              value={locale}
+              onChange={(event) =>
+                setLocale(event.target.value as "bn-BD" | "en")
+              }
+            >
+              <option value="bn-BD">{t("bangla")}</option>
+              <option value="en">{t("english")}</option>
+            </select>
+          </label>
+          <p className="page-eyebrow">{t("adminPortal")}</p>
+          <h1>{t("login")}</h1>
+          <label className="field">
+            <span>{t("email")}</span>
+            <input name="email" type="email" autoComplete="email" required />
+          </label>
+          <label className="field">
+            <span>{t("password")}</span>
+            <input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          {error ? <p className="error">{error}</p> : null}
+          <button className="button auth-submit" disabled={pending}>
+            {pending ? t("loggingIn") : t("login")}
+          </button>
+          <p className="auth-switch">
+            {t("newBusiness")}{" "}
+            <Link href="/register">{t("createAccount")}</Link>
+          </p>
+        </form>
+      </section>
+    </main>
+  );
+}

@@ -1,6 +1,17 @@
+"use client";
 import { PageHeader } from "@/components/admin-ui";
 import { SettingsLive } from "@/components/settings-live";
-
+import { useI18n } from "@/lib/i18n";
 export default function SettingsPage() {
-  return <><PageHeader eyebrow="ওয়ার্কস্পেস" title="সেটিংস" description="ব্যবসা, শাখা, সদস্য, ভাষা ও নিরাপত্তা সেটিংস।" /><SettingsLive /></>;
+  const { t } = useI18n();
+  return (
+    <>
+      <PageHeader
+        eyebrow={t("workspace")}
+        title={t("settings")}
+        description={t("settingsIntro")}
+      />
+      <SettingsLive />
+    </>
+  );
 }

@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import require_roles
+from app.core.permissions import require_permission
 from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
 from app.schemas import InventoryAdjustmentCreate
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
-inventory_manager = require_roles("owner", "admin", "branch_manager", "inventory_manager")
+inventory_manager = require_permission("inventory.adjust")
 
 
 @router.get("")

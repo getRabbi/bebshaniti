@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
+from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.branches.router import router as branches_router
 from app.modules.customers.router import router as customers_router
@@ -14,6 +15,7 @@ from app.modules.due.router import router as due_router
 from app.modules.health.router import router as health_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.organizations.router import router as organizations_router
+from app.modules.product_imports.router import router as product_imports_router
 from app.modules.product_master.router import router as product_master_router
 from app.modules.products.router import router as products_router
 from app.modules.reports.router import router as reports_router
@@ -46,10 +48,12 @@ register_error_handlers(app)
 
 for api_router in (
     health_router,
+    audit_router,
     auth_router,
     organizations_router,
     branches_router,
     products_router,
+    product_imports_router,
     product_master_router,
     inventory_router,
     customers_router,

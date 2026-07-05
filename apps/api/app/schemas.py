@@ -65,6 +65,11 @@ class ProductCreate(ApiModel):
     serial_number: str | None = Field(default=None, max_length=120)
     rack_location: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+    image_path: str | None = Field(default=None, max_length=500)
+
+
+class ProductImageUpdate(ApiModel):
+    image_path: str | None = Field(default=None, max_length=500)
 
 
 class CustomerCreate(ApiModel):
@@ -103,6 +108,22 @@ class SaleCreate(ApiModel):
     reference_no: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=500)
     footer_note: str | None = Field(default=None, max_length=500)
+
+
+class SaleReturnItemCreate(ApiModel):
+    sale_item_id: UUID
+    quantity: Decimal = Field(gt=0)
+
+
+class SaleReturnCreate(ApiModel):
+    items: list[SaleReturnItemCreate] = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=3, max_length=500)
+    refund_method: Literal["cash", "bkash", "nagad", "rocket", "bank", "card", "cheque"] = "cash"
+
+
+class SaleVoidCreate(ApiModel):
+    reason: str = Field(min_length=3, max_length=500)
+    refund_method: Literal["cash", "bkash", "nagad", "rocket", "bank", "card", "cheque"] = "cash"
 
 
 class ProductMasterImportItem(ApiModel):

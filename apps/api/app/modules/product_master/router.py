@@ -3,13 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import require_roles
+from app.core.permissions import require_permission
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
 from app.schemas import ProductMasterImport
 
 router = APIRouter(prefix="/product-master", tags=["product-master"])
-master_admin = require_roles("owner", "admin")
+master_admin = require_permission("products.import")
 
 
 @router.get("/categories")

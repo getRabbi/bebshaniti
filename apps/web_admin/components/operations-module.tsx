@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type TranslationKey } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase-browser";
+import {
+  ProductImageManager,
+  ProductImagePicker,
+  uploadProductImage,
+} from "@/components/product-image";
 
 export type ModuleKind =
   | "products"
@@ -29,79 +34,91 @@ type Suggestion = {
   category_bn_name?: string;
   source: "master" | "local";
 };
-const money = new Intl.NumberFormat("bn-BD", {
-  style: "currency",
-  currency: "BDT",
-  maximumFractionDigits: 2,
-});
-const config = {
+function moneyFormatter(locale: string) {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "BDT",
+    maximumFractionDigits: 2,
+  });
+}
+const config: Record<
+  ModuleKind,
+  {
+    endpoint: string;
+    title: TranslationKey;
+    description: TranslationKey;
+    action: TranslationKey;
+    columns: Array<[string, TranslationKey]>;
+  }
+> = {
   products: {
     endpoint: "/products",
-    title: "পণ্য",
-    description: "দ্রুত পণ্য যোগ, দাম, স্টক ও বারকোড পরিচালনা করুন।",
-    action: "পণ্য যোগ করুন",
+    title: "products",
+    description: "productManagementIntro",
+    action: "addProduct",
     columns: [
-      ["name", "পণ্য"],
-      ["sku", "SKU"],
-      ["retail_price", "বিক্রয় মূল্য"],
-      ["purchase_price", "ক্রয় মূল্য"],
-      ["stock_quantity", "স্টক"],
+      ["image_url", "image"],
+      ["name", "products"],
+      ["sku", "sku"],
+      ["retail_price", "sellingPrice"],
+      ["purchase_price", "buyingPrice"],
+      ["stock_quantity", "stock"],
     ],
   },
   inventory: {
     endpoint: "/inventory",
-    title: "স্টক / ইনভেন্টরি",
-    description: "শাখাভিত্তিক বর্তমান স্টক ও কম-স্টক সতর্কতা।",
-    action: "স্টক সমন্বয়",
+    title: "inventory",
+    description: "inventoryManagementIntro",
+    action: "adjustStock",
     columns: [
-      ["product_name", "পণ্য"],
-      ["sku", "SKU"],
-      ["quantity", "পরিমাণ"],
-      ["avg_cost", "গড় মূল্য"],
-      ["stock_value", "স্টক মূল্য"],
+      ["product_name", "products"],
+      ["sku", "sku"],
+      ["quantity", "quantity"],
+      ["avg_cost", "averageCost"],
+      ["stock_value", "stockValue"],
     ],
   },
   sales: {
     endpoint: "/sales",
-    title: "বিক্রয়",
-    description: "বিক্রয় ইতিহাস, পেমেন্ট ও ক্যাশ মেমো।",
-    action: "নতুন বিক্রয়",
+    title: "sales",
+    description: "salesManagementIntro",
+    action: "newSale",
     columns: [
-      ["invoice_no", "মেমো"],
-      ["customer_name", "কাস্টমার"],
-      ["grand_total", "মোট"],
-      ["paid_total", "পরিশোধ"],
-      ["due_total", "বাকি"],
-      ["status", "অবস্থা"],
+      ["invoice_no", "memoNumber"],
+      ["customer_name", "customers"],
+      ["grand_total", "total"],
+      ["paid_total", "paid"],
+      ["due_total", "due"],
+      ["status", "status"],
     ],
   },
   customers: {
     endpoint: "/customers",
-    title: "কাস্টমার",
-    description: "কাস্টমার প্রোফাইল, ক্রেডিট ও বাকি হিসাব।",
-    action: "কাস্টমার যোগ করুন",
+    title: "customers",
+    description: "customerManagementIntro",
+    action: "addCustomer",
     columns: [
-      ["name", "নাম"],
-      ["phone", "ফোন"],
-      ["customer_type", "ধরন"],
-      ["due_balance", "বাকি"],
-      ["credit_limit", "ক্রেডিট সীমা"],
+      ["name", "name"],
+      ["phone", "phone"],
+      ["customer_type", "type"],
+      ["due_balance", "due"],
+      ["credit_limit", "creditLimit"],
     ],
   },
   due: {
     endpoint: "/due",
-    title: "বাকি / পাওনা",
-    description: "কাস্টমার বাকি, লেজার ও কালেকশন।",
-    action: "বাকি আদায়",
+    title: "due",
+    description: "dueIntro",
+    action: "receiveDue",
     columns: [
-      ["customer_name", "কাস্টমার"],
-      ["phone", "ফোন"],
-      ["balance", "বাকি"],
-      ["credit_limit", "সীমা"],
-      ["over_credit_limit", "সতর্কতা"],
+      ["customer_name", "customers"],
+      ["phone", "phone"],
+      ["balance", "due"],
+      ["credit_limit", "creditLimit"],
+      ["over_credit_limit", "warning"],
     ],
   },
-} as const;
+};
 function orgCookie() {
   return (
     document.cookie
@@ -114,7 +131,14 @@ function num(v: unknown) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
-function display(key: string, value: unknown) {
+function display(
+  key: string,
+  value: unknown,
+  yes: string,
+  no: string,
+  money: Intl.NumberFormat,
+  statuses: Record<string, string>,
+) {
   if (value === null || value === undefined || value === "") return "—";
   if (
     [
@@ -130,20 +154,32 @@ function display(key: string, value: unknown) {
     ].includes(key)
   )
     return money.format(num(value));
-  if (typeof value === "boolean") return value ? "হ্যাঁ" : "না";
+  if (key === "status") return statuses[String(value)] ?? String(value);
+  if (typeof value === "boolean") return value ? yes : no;
   return String(value);
 }
 
 export function OperationsModule({ kind }: { kind: ModuleKind }) {
-  const c = config[kind] as {
-    endpoint: string;
-    title: string;
-    description: string;
-    action: string;
-    columns: readonly (readonly [string, string])[];
+  const { t, locale } = useI18n();
+  const money = useMemo(() => moneyFormatter(locale), [locale]);
+  const statuses = {
+    draft: t("statusDraft"),
+    completed: t("statusCompleted"),
+    cancelled: t("statusCancelled"),
+    void: t("statusVoid"),
+    returned: t("statusReturned"),
+    partially_returned: t("statusPartiallyReturned"),
+    pending: t("statusPending"),
+  };
+  const raw = config[kind];
+  const c = {
+    ...raw,
+    title: t(raw.title),
+    description: t(raw.description),
+    action: t(raw.action),
+    columns: raw.columns.map(([key, label]) => [key, t(label)] as const),
   };
   const params = useSearchParams();
-  const { t } = useI18n();
   const [rows, setRows] = useState<Row[]>([]);
   const [org, setOrg] = useState("");
   const [token, setToken] = useState("");
@@ -152,6 +188,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [products, setProducts] = useState<Row[]>([]);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [metadata, setMetadata] = useState<Metadata>({
     categories: [],
     units: [],
@@ -179,6 +216,12 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       const id = orgs.some((o) => o.id === existing) ? existing : orgs[0].id;
       setOrg(id);
       document.cookie = `organization_id=${id}; Path=/; SameSite=Lax`;
+      const current = await apiRequest<{ permissions: string[] }>(
+        "/organizations/current",
+        data.session.access_token,
+        id,
+      );
+      setPermissions(current.permissions ?? []);
       const requests: Promise<unknown>[] = [
         apiRequest<Row[]>(c.endpoint, data.session.access_token, id),
       ];
@@ -199,11 +242,11 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       if (kind === "products") setMetadata(result[1] as Metadata);
       if (kind === "inventory") setProducts(result[1] as Row[]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "তথ্য লোড করা যায়নি।");
+      setError(e instanceof Error ? e.message : t("loadError"));
     } finally {
       setLoading(false);
     }
-  }, [c.endpoint, kind]);
+  }, [c.endpoint, kind, t]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -215,10 +258,10 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
     () =>
       kind === "products"
         ? [
-            ["মোট পণ্য", rows.length],
-            ["বারকোড ছাড়া", rows.filter((r) => !r.barcode).length],
+            [t("totalProducts"), rows.length],
+            [t("withoutBarcode"), rows.filter((r) => !r.barcode).length],
             [
-              "কম স্টক",
+              t("lowStockProducts"),
               rows.filter((r) => num(r.stock_quantity) <= num(r.reorder_level))
                 .length,
             ],
@@ -226,17 +269,17 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
         : kind === "sales"
           ? [
               [
-                "মোট বিক্রয়",
+                t("totalSales"),
                 money.format(rows.reduce((s, r) => s + num(r.grand_total), 0)),
               ],
-              ["লেনদেন", rows.length],
+              [t("transactions"), rows.length],
               [
-                "মোট বাকি",
+                t("totalDue"),
                 money.format(rows.reduce((s, r) => s + num(r.due_total), 0)),
               ],
             ]
-          : [["মোট রেকর্ড", rows.length]],
-    [kind, rows],
+          : [[t("totalRecords"), rows.length]],
+    [kind, money, rows, t],
   );
   async function genericSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -278,17 +321,26 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       setOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "সেভ করা যায়নি।");
+      setError(err instanceof Error ? err.message : t("saveError"));
     } finally {
       setSaving(false);
     }
   }
   const action =
-    kind === "sales" ? (
+    kind === "sales" && permissions.includes("sales.create") ? (
       <Link className="button primary-action" href="/sales/new">
         {c.action}
       </Link>
-    ) : (
+    ) : kind !== "sales" &&
+      permissions.includes(
+        kind === "products"
+          ? "products.create"
+          : kind === "inventory"
+            ? "inventory.adjust"
+            : kind === "customers"
+              ? "customers.create"
+              : "due.receive",
+      ) ? (
       <button
         className="button primary-action"
         type="button"
@@ -296,7 +348,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       >
         {c.action}
       </button>
-    );
+    ) : null;
   return (
     <>
       <header className="page-header">
@@ -305,7 +357,14 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
           <h1>{c.title}</h1>
           <p className="page-description">{c.description}</p>
         </div>
-        {action}
+        <div className="header-actions">
+          {kind === "products" && permissions.includes("products.import") ? (
+            <Link className="button secondary" href="/products/import">
+              {t("importProducts")}
+            </Link>
+          ) : null}
+          {action}
+        </div>
       </header>
       {error ? (
         <div className="error module-error" role="alert">
@@ -341,18 +400,18 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
             <div className="form-grid">
               {kind === "customers" ? (
                 <>
-                  <Field label="নাম" name="name" required />
-                  <Field label="ফোন" name="phone" />
-                  <Field label="ঠিকানা" name="address" />
+                  <Field label={t("name")} name="name" required />
+                  <Field label={t("phone")} name="phone" />
+                  <Field label={t("description")} name="address" />
                   <label className="field">
-                    <span>ধরন</span>
+                    <span>{t("customerType")}</span>
                     <select name="customerType">
-                      <option value="retail">খুচরা</option>
-                      <option value="wholesale">পাইকারি</option>
+                      <option value="retail">{t("retail")}</option>
+                      <option value="wholesale">{t("wholesale")}</option>
                     </select>
                   </label>
                   <Field
-                    label="ক্রেডিট সীমা"
+                    label={t("creditLimit")}
                     name="creditLimit"
                     type="number"
                   />
@@ -360,7 +419,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
               ) : kind === "inventory" ? (
                 <>
                   <label className="field field-wide">
-                    <span>পণ্য</span>
+                    <span>{t("products")}</span>
                     <select name="productVariantId" required>
                       {products.map((p) => (
                         <option
@@ -373,18 +432,18 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
                     </select>
                   </label>
                   <Field
-                    label="পরিমাণ (+/-)"
+                    label={t("quantity")}
                     name="quantity"
                     type="number"
                     required
                   />
-                  <Field label="ইউনিট খরচ" name="cost" type="number" />
-                  <Field label="কারণ" name="note" required />{" "}
+                  <Field label={t("cost")} name="cost" type="number" />
+                  <Field label={t("reason")} name="note" required />{" "}
                 </>
               ) : (
                 <>
                   <label className="field field-wide">
-                    <span>কাস্টমার</span>
+                    <span>{t("customers")}</span>
                     <select name="customerId" required>
                       {rows.map((r) => (
                         <option
@@ -398,20 +457,20 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
                     </select>
                   </label>
                   <Field
-                    label="আদায়ের পরিমাণ"
+                    label={t("receiveAmount")}
                     name="amount"
                     type="number"
                     required
                   />
                   <label className="field">
-                    <span>পেমেন্ট</span>
+                    <span>{t("payment")}</span>
                     <select name="method">
-                      <option value="cash">ক্যাশ</option>
-                      <option value="bkash">বিকাশ</option>
-                      <option value="nagad">নগদ</option>
+                      <option value="cash">Cash</option>
+                      <option value="bkash">bKash</option>
+                      <option value="nagad">Nagad</option>
                     </select>
                   </label>
-                  <Field label="নোট" name="note" />
+                  <Field label={t("notes")} name="note" />
                 </>
               )}
             </div>
@@ -428,7 +487,9 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       ) : null}
       <section className="data-panel">
         <div className="data-toolbar">
-          <strong>{loading ? t("loading") : `${rows.length}টি রেকর্ড`}</strong>
+          <strong>
+            {loading ? t("loading") : `${rows.length} ${t("records")}`}
+          </strong>
           <button
             className="filter-button"
             onClick={() => void load()}
@@ -460,12 +521,51 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
                 >
                   {c.columns.map(([key, label]) => (
                     <span data-label={label} key={key}>
-                      {kind === "sales" && key === "invoice_no" ? (
+                      {kind === "products" && key === "image_url" ? (
+                        <ProductImageManager
+                          productId={String(row.id)}
+                          imagePath={
+                            row.image_path ? String(row.image_path) : undefined
+                          }
+                          imageUrl={
+                            row.image_url ? String(row.image_url) : undefined
+                          }
+                          organizationId={org}
+                          token={token}
+                          canUpdate={permissions.includes("products.update")}
+                          onChanged={load}
+                        />
+                      ) : kind === "sales" && key === "invoice_no" ? (
                         <Link href={`/sales/${row.id}/memo`}>
-                          {display(key, row[key])}
+                          {display(
+                            key,
+                            row[key],
+                            t("yes"),
+                            t("no"),
+                            money,
+                            statuses,
+                          )}
+                        </Link>
+                      ) : kind === "customers" && key === "name" ? (
+                        <Link href={`/customers/${row.id}`}>
+                          {display(
+                            key,
+                            row[key],
+                            t("yes"),
+                            t("no"),
+                            money,
+                            statuses,
+                          )}
                         </Link>
                       ) : (
-                        display(key, row[key])
+                        display(
+                          key,
+                          row[key],
+                          t("yes"),
+                          t("no"),
+                          money,
+                          statuses,
+                        )
                       )}
                     </span>
                   ))}
@@ -475,11 +575,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
           ) : (
             <div className="empty-state">
               <h2>{loading ? t("loading") : t("noData")}</h2>
-              <p>
-                {loading
-                  ? "নিরাপদ ওয়ার্কস্পেস থেকে তথ্য আনা হচ্ছে।"
-                  : "প্রথম রেকর্ড যোগ করলে এখানে দেখা যাবে।"}
-              </p>
+              <p>{loading ? t("loadingWorkspace") : t("firstRecordHint")}</p>
             </div>
           )}
         </div>
@@ -531,7 +627,10 @@ function ProductForm({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const { t, locale } = useI18n();
+  const money = moneyFormatter(locale);
   const [name, setName] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [selected, setSelected] = useState<Suggestion | null>(null);
   const [buy, setBuy] = useState(0);
@@ -574,7 +673,9 @@ function ProductForm({
     setSaving(true);
     setError(null);
     const f = new FormData(e.currentTarget);
+    let uploadedPath = "";
     try {
+      if (imageFile) uploadedPath = await uploadProductImage(imageFile, org);
       const result = await apiRequest<{ id: string }>("/products", token, org, {
         method: "POST",
         body: JSON.stringify({
@@ -604,6 +705,7 @@ function ProductForm({
           serial_number: f.get("serial") || null,
           rack_location: f.get("rack") || null,
           notes: f.get("notes") || null,
+          image_path: uploadedPath || null,
         }),
       });
       if (
@@ -620,6 +722,7 @@ function ProductForm({
       ) {
         setName("");
         setSelected(null);
+        setImageFile(null);
         (e.currentTarget as HTMLFormElement).reset();
         await onSaved();
         return;
@@ -627,7 +730,11 @@ function ProductForm({
       onClose();
       await onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "পণ্য সেভ করা যায়নি।");
+      if (uploadedPath)
+        await createClient()
+          .storage.from("product-media")
+          .remove([uploadedPath]);
+      setError(err instanceof Error ? err.message : t("saveError"));
     } finally {
       setSaving(false);
     }
@@ -637,7 +744,7 @@ function ProductForm({
       <div className="panel-header">
         <div>
           <p className="page-eyebrow">QUICK ADD</p>
-          <h2>নতুন পণ্য</h2>
+          <h2>{t("newProduct")}</h2>
         </div>
         <button className="close-button" onClick={onClose}>
           ×
@@ -645,11 +752,12 @@ function ProductForm({
       </div>
       {error ? <div className="error">{error}</div> : null}
       <form onSubmit={submit}>
+        <ProductImagePicker file={imageFile} onChange={setImageFile} />
         <div className="form-section">
-          <h3>প্রয়োজনীয় তথ্য</h3>
+          <h3>{t("requiredInfo")}</h3>
           <div className="form-grid">
             <label className="field field-wide suggestion-field">
-              <span>পণ্যের নাম *</span>
+              <span>{t("productName")} *</span>
               <input
                 autoFocus
                 value={name}
@@ -659,7 +767,7 @@ function ProductForm({
                 }}
                 required
                 autoComplete="off"
-                placeholder="যেমন: ACI Salt / ইস্পাহানি চা"
+                placeholder={t("productSearchPlaceholder")}
               />
               {suggestions.length ? (
                 <div className="suggestion-list">
@@ -687,12 +795,12 @@ function ProductForm({
               ) : null}
             </label>
             <label className="field">
-              <span>ক্যাটাগরি *</span>
+              <span>{t("category")} *</span>
               <select name="categoryId" required={!selected}>
                 {selected ? (
                   <option value="">{selected.category_bn_name}</option>
                 ) : (
-                  <option value="">নির্বাচন করুন</option>
+                  <option value="">{t("select")}</option>
                 )}
                 {metadata.categories.map((x) => (
                   <option key={x.id} value={x.id}>
@@ -702,12 +810,12 @@ function ProductForm({
               </select>
             </label>
             <label className="field">
-              <span>ইউনিট *</span>
+              <span>{t("unit")} *</span>
               <select name="unitId" required={!selected}>
                 {selected ? (
                   <option value="">{selected.common_unit}</option>
                 ) : (
-                  <option value="">নির্বাচন করুন</option>
+                  <option value="">{t("select")}</option>
                 )}
                 {metadata.units.map((x) => (
                   <option key={x.id} value={x.id}>
@@ -720,9 +828,9 @@ function ProductForm({
         </div>
         <div className="price-profit-card">
           <label className="field">
-            <span>ক্রয় মূল্য *</span>
+            <span>{t("buyingPrice")} *</span>
             <input
-              aria-label="ক্রয় মূল্য"
+              aria-label={t("buyingPrice")}
               type="number"
               min="0"
               step="0.01"
@@ -732,9 +840,9 @@ function ProductForm({
             />
           </label>
           <label className="field">
-            <span>বিক্রয় মূল্য *</span>
+            <span>{t("sellingPrice")} *</span>
             <input
-              aria-label="বিক্রয় মূল্য"
+              aria-label={t("sellingPrice")}
               type="number"
               min="0"
               step="0.01"
@@ -744,7 +852,7 @@ function ProductForm({
             />
           </label>
           <div className={profit < 0 ? "profit-negative" : "profit-positive"}>
-            <span>লাভ</span>
+            <span>{t("profit")}</span>
             <strong>{money.format(profit)}</strong>
             <small>
               Margin {margin.toFixed(1)}% · Markup {markup.toFixed(1)}%
@@ -752,68 +860,76 @@ function ProductForm({
           </div>
         </div>
         {profit < 0 ? (
-          <p className="price-warning">⚠ বিক্রয় মূল্য ক্রয় মূল্যের চেয়ে কম।</p>
+          <p className="price-warning">⚠ {t("profitWarning")}</p>
         ) : null}
         <button
           type="button"
           className="advanced-toggle"
           onClick={() => setAdvanced(!advanced)}
         >
-          {advanced ? "উন্নত তথ্য বন্ধ করুন" : "＋ উন্নত তথ্য যোগ করুন"}
+          {advanced ? t("closeAdvanced") : `＋ ${t("addAdvanced")}`}
         </button>
         {advanced ? (
           <div className="advanced-product">
             <div className="form-grid">
-              <Field label="SKU (খালি রাখলে অটো)" name="sku" />
-              <Field label="বারকোড" name="barcode" />
-              <Field label="ব্র্যান্ড" name="brand" />
-              <Field label="সাপ্লায়ার" name="supplier" />
-              <Field label="ভ্যারিয়েন্ট" name="variant" />
-              <Field label="সাইজ / প্যাক" name="packSize" />
-              <Field label="পাইকারি মূল্য" name="wholesale" type="number" />
+              <Field label={t("sku")} name="sku" />
+              <Field label={t("barcode")} name="barcode" />
+              <Field label={t("brand")} name="brand" />
+              <Field label={t("supplier")} name="supplier" />
+              <Field label={t("variant")} name="variant" />
+              <Field label={t("packSize")} name="packSize" />
+              <Field
+                label={t("wholesalePrice")}
+                name="wholesale"
+                type="number"
+              />
               <Field label="MRP" name="mrp" type="number" />
-              <Field label="ওপেনিং স্টক" name="openingStock" type="number" />
-              <Field label="লো স্টক সতর্কতা" name="reorder" type="number" />
+              <Field
+                label={t("openingStock")}
+                name="openingStock"
+                type="number"
+              />
+              <Field label={t("lowStockAlert")} name="reorder" type="number" />
               <Field label="VAT %" name="vat" type="number" />
-              <Field label="র‍্যাক / শেলফ" name="rack" />
-              <Field label="ব্যাচ" name="batch" />
-              <Field label="সিরিয়াল" name="serial" />
-              <Field label="মেয়াদ" name="expiryDate" type="date" />
+              <Field label={t("rack")} name="rack" />
+              <Field label={t("batch")} name="batch" />
+              <Field label={t("serial")} name="serial" />
+              <Field label={t("expiryDate")} name="expiryDate" type="date" />
               <label className="field field-wide">
-                <span>বিবরণ</span>
+                <span>{t("description")}</span>
                 <textarea name="description" />
               </label>
               <label className="field field-wide">
-                <span>নোট</span>
+                <span>{t("notes")}</span>
                 <textarea name="notes" />
               </label>
               <label className="check-field">
                 <input type="checkbox" name="discountAllowed" defaultChecked />{" "}
-                ডিসকাউন্ট অনুমোদিত
+                {t("allowDiscount")}
               </label>
               <label className="check-field">
-                <input type="checkbox" name="expiryTracking" /> মেয়াদ ট্র্যাক
-                করুন
+                <input type="checkbox" name="expiryTracking" />{" "}
+                {t("trackExpiry")}
               </label>
             </div>
           </div>
         ) : null}
         <div className="form-actions product-actions">
           <button type="button" onClick={onClose}>
-            বাতিল
+            {t("cancel")}
           </button>
           <button
             className="button secondary"
             data-another="1"
             disabled={saving}
           >
-            সেভ ও আরেকটি যোগ
+            {t("saveAddAnother")}
           </button>
           <button className="button secondary" data-pos="1" disabled={saving}>
-            সেভ ও POS-এ যান
+            {t("saveGoPos")}
           </button>
           <button className="button" disabled={saving}>
-            {saving ? "সেভ হচ্ছে…" : "সেভ"}
+            {saving ? t("saving") : t("save")}
           </button>
         </div>
       </form>

@@ -1,5 +1,100 @@
 "use client";
 import Link from "next/link";
-import {FormEvent,useState} from "react";
-import {createClient} from "@/lib/supabase-browser";
-export default function RegisterPage(){const[error,setError]=useState<string|null>(null);const[message,setMessage]=useState<string|null>(null);const[pending,setPending]=useState(false);async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setPending(true);setError(null);const form=new FormData(event.currentTarget);const password=String(form.get("password"));if(password.length<10){setError("পাসওয়ার্ডে কমপক্ষে ১০টি অক্ষর দিন।");setPending(false);return;}const{data,error:authError}=await createClient().auth.signUp({email:String(form.get("email")),password,options:{data:{full_name:String(form.get("fullName"))},emailRedirectTo:`${location.origin}/onboarding`}});if(authError){if(process.env.NODE_ENV!=="production")console.error(authError);setError("অ্যাকাউন্ট তৈরি করা যায়নি। ইমেইলটি যাচাই করুন।");setPending(false);return;}if(data.session)location.assign("/onboarding");else setMessage("ইমেইল যাচাই করে তারপর লগইন করুন।");setPending(false);}return <main className="auth-shell"><section className="auth-story"><div className="auth-brand"><span className="auth-brand-mark">B</span><span>ব্যবসানীতি<small>Business OS</small></span></div><div className="auth-message"><p className="auth-kicker">মালিকের নিবন্ধন</p><h2>নিরাপদ ভিত্তি দিয়ে শুরু করুন।</h2><p>প্রথমে মালিকের পরিচয় তৈরি করুন। পরের ধাপে ব্যবসা ও প্রধান শাখা তৈরি হবে।</p></div><div className="auth-points"><span>Verified identity</span><span>Isolated workspace</span><span>No demo data</span></div></section><section className="auth-form-side"><form className="auth-card" onSubmit={submit}><p className="page-eyebrow">মালিকের অ্যাকাউন্ট</p><h1>অ্যাকাউন্ট তৈরি করুন</h1><label className="field"><span>পূর্ণ নাম</span><input name="fullName" autoComplete="name" required/></label><label className="field"><span>ইমেইল</span><input name="email" type="email" autoComplete="email" required/></label><label className="field"><span>পাসওয়ার্ড</span><input name="password" type="password" minLength={10} autoComplete="new-password" required/></label>{error?<p className="error">{error}</p>:null}{message?<p className="success">{message}</p>:null}<button className="button auth-submit" disabled={pending}>{pending?"তৈরি হচ্ছে…":"মালিকের অ্যাকাউন্ট তৈরি করুন"}</button><p className="auth-switch">আগে নিবন্ধিত? <Link href="/login">লগইন করুন</Link></p></form></section></main>}
+import { FormEvent, useState } from "react";
+import { useI18n } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase-browser";
+export default function RegisterPage() {
+  const { t, locale, setLocale } = useI18n();
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password"));
+    if (password.length < 10) {
+      setError(`${t("password")}: 10+`);
+      setPending(false);
+      return;
+    }
+    const { data, error: authError } = await createClient().auth.signUp({
+      email: String(form.get("email")),
+      password,
+      options: {
+        data: { full_name: String(form.get("fullName")) },
+        emailRedirectTo: `${location.origin}/onboarding`,
+      },
+    });
+    if (authError) {
+      if (process.env.NODE_ENV !== "production") console.error(authError);
+      setError(t("saveError"));
+      setPending(false);
+      return;
+    }
+    if (data.session) location.assign("/onboarding");
+    else setMessage(t("login"));
+    setPending(false);
+  }
+  return (
+    <main className="auth-shell">
+      <section className="auth-story">
+        <div className="auth-brand">
+          <span className="auth-brand-mark">B</span>
+          <span>
+            BebshaNiti<small>Business OS</small>
+          </span>
+        </div>
+        <div className="auth-message">
+          <p className="auth-kicker">{t("ownerAccount")}</p>
+          <h2>{t("registerTitle")}</h2>
+          <p>{t("registerIntro")}</p>
+        </div>
+        <div className="auth-points">
+          <span>{t("verifiedIdentity")}</span>
+          <span>{t("isolatedWorkspace")}</span>
+          <span>{t("noDemo")}</span>
+        </div>
+      </section>
+      <section className="auth-form-side">
+        <form className="auth-card" onSubmit={submit}>
+          <label className="language-switch auth-language">
+            {t("language")}
+            <select
+              value={locale}
+              onChange={(event) =>
+                setLocale(event.target.value as "bn-BD" | "en")
+              }
+            >
+              <option value="bn-BD">{t("bangla")}</option>
+              <option value="en">{t("english")}</option>
+            </select>
+          </label>
+          <p className="page-eyebrow">{t("ownerAccount")}</p>
+          <h1>{t("createAccount")}</h1>
+          <label className="field">
+            <span>{t("fullName")}</span>
+            <input name="fullName" required />
+          </label>
+          <label className="field">
+            <span>{t("email")}</span>
+            <input name="email" type="email" required />
+          </label>
+          <label className="field">
+            <span>{t("password")}</span>
+            <input name="password" type="password" minLength={10} required />
+          </label>
+          {error ? <p className="error">{error}</p> : null}
+          {message ? <p className="success">{message}</p> : null}
+          <button className="button auth-submit" disabled={pending}>
+            {pending ? t("creating") : t("createAccount")}
+          </button>
+          <p className="auth-switch">
+            {t("alreadyRegistered")} <Link href="/login">{t("login")}</Link>
+          </p>
+        </form>
+      </section>
+    </main>
+  );
+}
