@@ -7,14 +7,24 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
 
 @lru_cache
 def get_engine() -> AsyncEngine:
+    settings = get_settings()
+    if settings.app_env == "production":
+        # Vercel instances must not retain per-process connection pools. The
+        # Supabase session pool is shared and has a small global client limit.
+        return create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            poolclass=NullPool,
+        )
     return create_async_engine(
-        get_settings().database_url,
+        settings.database_url,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
