@@ -20,6 +20,7 @@ node_modules/
 .next/
 out/
 .vercel/
+.vercel-stage/
 *.tsbuildinfo
 npm-debug.log*
 pnpm-debug.log*

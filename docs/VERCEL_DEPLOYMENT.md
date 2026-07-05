@@ -46,4 +46,4 @@ After domain binding:
 5. Verify API CORS includes only approved admin origins.
 6. Confirm preview deployments cannot access production Supabase.
 
-FastAPI is not deployed to Vercel in this baseline. Deploy its Docker image to a container platform with health checks, TLS, autoscaling, secret management and a future worker service; point `api.yourdomain.com` there.
+The stateless FastAPI application can deploy through `apps/api/index.py` on Vercel's Python runtime. Keep Redis consumers, scheduled jobs and long-running workers on a separate worker/container platform; point the public API domain at the FastAPI deployment.

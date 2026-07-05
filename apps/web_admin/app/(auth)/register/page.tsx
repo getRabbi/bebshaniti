@@ -25,7 +25,10 @@ export default function RegisterPage() {
     const { data, error: authError } = await createClient().auth.signUp({
       email: String(form.get("email")),
       password,
-      options: { data: { full_name: String(form.get("fullName")) } }
+      options: {
+        data: { full_name: String(form.get("fullName")) },
+        emailRedirectTo: `${window.location.origin}/onboarding`
+      }
     });
     if (authError) {
       setError(authError.message);
