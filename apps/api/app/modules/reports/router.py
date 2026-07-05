@@ -10,7 +10,8 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 async def summary_query(context: OrganizationContext, session: AsyncSession) -> dict[str, object]:
-    result = await session.execute(text("""
+    result = await session.execute(
+        text("""
         select
           coalesce((select sum(grand_total) from public.sales where organization_id=:org
             and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) sales_today,
@@ -32,7 +33,9 @@ async def summary_query(context: OrganizationContext, session: AsyncSession) -> 
           coalesce((select count(*) from public.customers where organization_id=:org and status='active'),0) total_customers,
           coalesce((select sum(amount) from public.payments where organization_id=:org and paid_at>=current_date
             and (cast(:branch as uuid) is null or branch_id=:branch)),0) collection_today
-    """), {"org": context.organization_id, "branch": context.branch_id})
+    """),
+        {"org": context.organization_id, "branch": context.branch_id},
+    )
     return dict(result.mappings().one())
 
 
@@ -52,30 +55,41 @@ async def sales_report(
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    daily = await session.execute(text("""
+    daily = await session.execute(
+        text("""
       select sold_at::date as date,count(*) as transactions,sum(grand_total) as sales,
              sum(profit_total) as profit,sum(due_total) as due
       from public.sales where organization_id=:org and status='completed'
         and sold_at>=current_date-(:days-1)*interval '1 day'
         and (cast(:branch as uuid) is null or branch_id=:branch)
       group by sold_at::date order by date
-    """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
-    payment = await session.execute(text("""
+    """),
+        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+    )
+    payment = await session.execute(
+        text("""
       select method,sum(amount) as amount,count(*) as transactions from public.payments
       where organization_id=:org and paid_at>=current_date-(:days-1)*interval '1 day'
         and (cast(:branch as uuid) is null or branch_id=:branch) group by method order by amount desc
-    """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
-    best = await session.execute(text("""
+    """),
+        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+    )
+    best = await session.execute(
+        text("""
       select si.description,sum(si.quantity) as quantity,sum(si.line_total) as sales
       from public.sale_items si join public.sales s on s.id=si.sale_id
       where si.organization_id=:org and s.status='completed'
         and s.sold_at>=current_date-(:days-1)*interval '1 day'
         and (cast(:branch as uuid) is null or si.branch_id=:branch)
       group by si.description order by quantity desc limit 10
-    """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
-    return {"daily": [dict(r) for r in daily.mappings().all()],
-            "payment_methods": [dict(r) for r in payment.mappings().all()],
-            "best_sellers": [dict(r) for r in best.mappings().all()]}
+    """),
+        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+    )
+    return {
+        "daily": [dict(r) for r in daily.mappings().all()],
+        "payment_methods": [dict(r) for r in payment.mappings().all()],
+        "best_sellers": [dict(r) for r in best.mappings().all()],
+    }
 
 
 @router.get("/inventory")
@@ -83,7 +97,8 @@ async def inventory_report(
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    rows = await session.execute(text("""
+    rows = await session.execute(
+        text("""
       select p.name,p.name_bn,pv.sku,coalesce(sum(ib.quantity),0) quantity,
              coalesce(sum(ib.quantity*ib.avg_cost),0) stock_value,pv.reorder_level,
              bool_or(ib.quantity<=pv.reorder_level) as low_stock
@@ -92,10 +107,15 @@ async def inventory_report(
         and (cast(:branch as uuid) is null or ib.branch_id=:branch)
       where p.organization_id=:org and p.status='active'
       group by p.name,p.name_bn,pv.sku,pv.reorder_level order by stock_value desc
-    """), {"org": context.organization_id, "branch": context.branch_id})
+    """),
+        {"org": context.organization_id, "branch": context.branch_id},
+    )
     items = [dict(r) for r in rows.mappings().all()]
-    return {"items": items, "inventory_value": sum(float(r["stock_value"] or 0) for r in items),
-            "low_stock_count": sum(1 for r in items if r["low_stock"])}
+    return {
+        "items": items,
+        "inventory_value": sum(float(r["stock_value"] or 0) for r in items),
+        "low_stock_count": sum(1 for r in items if r["low_stock"]),
+    }
 
 
 @router.get("/due")
@@ -103,14 +123,17 @@ async def due_report(
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    rows = await session.execute(text("""
+    rows = await session.execute(
+        text("""
       select c.id,c.name,c.phone,c.credit_limit,sum(l.debit-l.credit) balance,
              max(l.created_at) last_activity
       from public.customers c join public.customer_ledger_entries l on l.customer_id=c.id
       where c.organization_id=:org and (cast(:branch as uuid) is null or l.branch_id=:branch)
       group by c.id,c.name,c.phone,c.credit_limit having sum(l.debit-l.credit)>0
       order by balance desc
-    """), {"org": context.organization_id, "branch": context.branch_id})
+    """),
+        {"org": context.organization_id, "branch": context.branch_id},
+    )
     customers = [dict(r) for r in rows.mappings().all()]
     return {"customers": customers, "receivable_due": sum(float(r["balance"]) for r in customers)}
 
@@ -121,7 +144,8 @@ async def profit_report(
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    result = await session.execute(text("""
+    result = await session.execute(
+        text("""
       select coalesce(sum(subtotal-discount_total),0) net_sales,
              coalesce(sum(profit_total),0) gross_profit,
              coalesce(sum(vat_total),0) tax_total,
@@ -130,5 +154,7 @@ async def profit_report(
       from public.sales where organization_id=:org and status='completed'
         and sold_at>=current_date-(:days-1)*interval '1 day'
         and (cast(:branch as uuid) is null or branch_id=:branch)
-    """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
+    """),
+        {"org": context.organization_id, "branch": context.branch_id, "days": days},
+    )
     return dict(result.mappings().one())

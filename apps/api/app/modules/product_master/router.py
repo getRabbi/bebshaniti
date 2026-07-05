@@ -17,11 +17,13 @@ async def list_categories(
     _: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, object]]:
-    result = await session.execute(text("""
+    result = await session.execute(
+        text("""
         select id, bn_name, en_name, slug
         from public.product_master_categories where is_active
         order by sort_order, bn_name
-    """))
+    """)
+    )
     return [dict(row) for row in result.mappings().all()]
 
 
@@ -31,12 +33,15 @@ async def list_subcategories(
     _: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, object]]:
-    result = await session.execute(text("""
+    result = await session.execute(
+        text("""
         select id, category_id, bn_name, en_name, slug
         from public.product_master_subcategories
         where is_active and (cast(:category_id as uuid) is null or category_id = cast(:category_id as uuid))
         order by bn_name
-    """), {"category_id": category_id})
+    """),
+        {"category_id": category_id},
+    )
     return [dict(row) for row in result.mappings().all()]
 
 
@@ -48,7 +53,8 @@ async def search_master(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, object]]:
     query = q.strip().lower()
-    result = await session.execute(text("""
+    result = await session.execute(
+        text("""
         with master as (
           select i.id, i.bn_name, i.en_name, i.brand_name, i.common_unit,
                  i.common_pack_size, i.barcode, i.category_id,
@@ -94,10 +100,15 @@ async def search_master(
         )
         select * from (select * from master union all select * from local_items) suggestions
         order by score desc, bn_name limit :limit
-    """), {
-        "q": query, "prefix": f"{query}%", "contains": f"%{query}%",
-        "organization_id": context.organization_id, "limit": limit,
-    })
+    """),
+        {
+            "q": query,
+            "prefix": f"{query}%",
+            "contains": f"%{query}%",
+            "organization_id": context.organization_id,
+            "limit": limit,
+        },
+    )
     return [dict(row) for row in result.mappings().all()]
 
 
@@ -110,13 +121,21 @@ async def import_master(
     imported = 0
     async with session.begin():
         for item in payload.items:
-            category_id = (await session.execute(text("""
+            category_id = (
+                await session.execute(
+                    text("""
                 select id from public.product_master_categories
                 where slug=:slug and is_active
-            """), {"slug": item.category_slug})).scalar_one_or_none()
+            """),
+                    {"slug": item.category_slug},
+                )
+            ).scalar_one_or_none()
             if category_id is None:
-                raise HTTPException(status_code=422, detail=f"Unknown category: {item.category_slug}")
-            result = await session.execute(text("""
+                raise HTTPException(
+                    status_code=422, detail=f"Unknown category: {item.category_slug}"
+                )
+            result = await session.execute(
+                text("""
                 insert into public.product_master_items
                   (category_id,bn_name,en_name,brand_name,common_unit,common_pack_size,aliases,barcode)
                 values (:category_id,:bn_name,:en_name,:brand_name,:common_unit,:pack_size,:aliases,:barcode)
@@ -125,17 +144,27 @@ async def import_master(
                   common_pack_size=excluded.common_pack_size, aliases=excluded.aliases,
                   barcode=coalesce(excluded.barcode,public.product_master_items.barcode), updated_at=now()
                 returning id
-            """), {
-                "category_id": category_id, "bn_name": item.bn_name, "en_name": item.en_name,
-                "brand_name": item.brand_name, "common_unit": item.common_unit,
-                "pack_size": item.common_pack_size, "aliases": item.aliases, "barcode": item.barcode,
-            })
+            """),
+                {
+                    "category_id": category_id,
+                    "bn_name": item.bn_name,
+                    "en_name": item.en_name,
+                    "brand_name": item.brand_name,
+                    "common_unit": item.common_unit,
+                    "pack_size": item.common_pack_size,
+                    "aliases": item.aliases,
+                    "barcode": item.barcode,
+                },
+            )
             master_id = result.scalar_one()
             for alias in item.aliases:
-                await session.execute(text("""
+                await session.execute(
+                    text("""
                     insert into public.product_master_aliases(item_id,alias,locale)
                     values (:id,:alias,case when :alias ~ '[ঀ-৿]' then 'bn-BD' else 'en' end)
                     on conflict do nothing
-                """), {"id": master_id, "alias": alias})
+                """),
+                    {"id": master_id, "alias": alias},
+                )
             imported += 1
     return {"imported": imported}

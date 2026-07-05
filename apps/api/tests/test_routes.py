@@ -3,9 +3,7 @@ from app.main import app
 
 def test_production_routes_are_registered() -> None:
     routes = {
-        (method, route.path)
-        for route in app.routes
-        for method in getattr(route, "methods", set())
+        (method, route.path) for route in app.routes for method in getattr(route, "methods", set())
     }
     expected = {
         ("GET", "/api/v1/product-master/search"),

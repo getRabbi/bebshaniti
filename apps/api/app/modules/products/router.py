@@ -54,8 +54,12 @@ async def list_products(
             order by p.name, v.variant_name limit :limit
             """
         ),
-        {"organization_id": context.organization_id, "branch_id": context.branch_id,
-         "search": search, "limit": limit},
+        {
+            "organization_id": context.organization_id,
+            "branch_id": context.branch_id,
+            "search": search,
+            "limit": limit,
+        },
     )
     return [dict(row) for row in result.mappings().all()]
 
@@ -113,51 +117,96 @@ async def create_product(
             category_id = payload.category_id
             brand_id = payload.brand_id
             if payload.master_item_id:
-                master = (await session.execute(text("""
+                master = (
+                    (
+                        await session.execute(
+                            text("""
                     select i.bn_name,i.en_name,i.brand_name,i.common_unit,c.bn_name as category_bn,c.en_name as category_en
                     from public.product_master_items i
                     join public.product_master_categories c on c.id=i.category_id
                     where i.id=:id and i.is_active
-                """), {"id": payload.master_item_id})).mappings().one_or_none()
+                """),
+                            {"id": payload.master_item_id},
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
                 if master is None:
                     raise HTTPException(status_code=404, detail="Product master item was not found")
                 if category_id is None:
-                    category_id = (await session.execute(text("""
+                    category_id = (
+                        await session.execute(
+                            text("""
                         insert into public.categories(organization_id,name,name_bn)
                         values (:org,:name,:name_bn)
                         on conflict (organization_id,name) do update set name_bn=excluded.name_bn
                         returning id
-                    """), {"org": context.organization_id, "name": master["category_en"],
-                            "name_bn": master["category_bn"]})).scalar_one()
+                    """),
+                            {
+                                "org": context.organization_id,
+                                "name": master["category_en"],
+                                "name_bn": master["category_bn"],
+                            },
+                        )
+                    ).scalar_one()
                 if brand_id is None and master["brand_name"]:
-                    brand_id = (await session.execute(text("""
+                    brand_id = (
+                        await session.execute(
+                            text("""
                         insert into public.brands(organization_id,name) values (:org,:name)
                         on conflict (organization_id,name) do update set is_active=true returning id
-                    """), {"org": context.organization_id, "name": master["brand_name"]})).scalar_one()
+                    """),
+                            {"org": context.organization_id, "name": master["brand_name"]},
+                        )
+                    ).scalar_one()
                 if base_unit_id is None:
-                    base_unit_id = (await session.execute(text("""
+                    base_unit_id = (
+                        await session.execute(
+                            text("""
                         insert into public.units(organization_id,name,symbol,precision)
                         values (:org,:unit,:unit,case when :unit in ('kg','litre') then 3 else 0 end)
                         on conflict (organization_id,symbol) do update set is_active=true returning id
-                    """), {"org": context.organization_id, "unit": master["common_unit"]})).scalar_one()
+                    """),
+                            {"org": context.organization_id, "unit": master["common_unit"]},
+                        )
+                    ).scalar_one()
             if brand_id is None and payload.brand_name:
-                brand_id = (await session.execute(text("""
+                brand_id = (
+                    await session.execute(
+                        text("""
                     insert into public.brands(organization_id,name) values (:org,:name)
                     on conflict (organization_id,name) do update set is_active=true returning id
-                """), {"org": context.organization_id, "name": payload.brand_name})).scalar_one()
+                """),
+                        {"org": context.organization_id, "name": payload.brand_name},
+                    )
+                ).scalar_one()
             supplier_id = payload.supplier_id
             if supplier_id is None and payload.supplier_name:
-                supplier_id = (await session.execute(text("""
+                supplier_id = (
+                    await session.execute(
+                        text("""
                     select id from public.suppliers
                     where organization_id=:org and lower(name)=lower(:name) limit 1
-                """), {"org": context.organization_id,
-                        "name": payload.supplier_name})).scalar_one_or_none()
+                """),
+                        {"org": context.organization_id, "name": payload.supplier_name},
+                    )
+                ).scalar_one_or_none()
                 if supplier_id is None:
-                    supplier_id = (await session.execute(text("""
+                    supplier_id = (
+                        await session.execute(
+                            text("""
                         insert into public.suppliers(organization_id,branch_id,name,created_by)
                         values (:org,:branch,:name,:user) returning id
-                    """), {"org": context.organization_id, "branch": context.branch_id,
-                            "name": payload.supplier_name, "user": user.id})).scalar_one()
+                    """),
+                            {
+                                "org": context.organization_id,
+                                "branch": context.branch_id,
+                                "name": payload.supplier_name,
+                                "user": user.id,
+                            },
+                        )
+                    ).scalar_one()
             if base_unit_id is None:
                 base_unit_id = (
                     await session.execute(
@@ -250,25 +299,44 @@ async def create_product(
             if payload.opening_stock > 0:
                 branch_id = payload.branch_id or context.branch_id
                 if branch_id is None:
-                    branch_id = (await session.execute(text("""
+                    branch_id = (
+                        await session.execute(
+                            text("""
                         select id from public.branches where organization_id=:org and is_main
-                    """), {"org": context.organization_id})).scalar_one_or_none()
+                    """),
+                            {"org": context.organization_id},
+                        )
+                    ).scalar_one_or_none()
                 if branch_id is None:
-                    raise HTTPException(status_code=409, detail="An active branch is required for opening stock")
-                await session.execute(text("""
+                    raise HTTPException(
+                        status_code=409, detail="An active branch is required for opening stock"
+                    )
+                await session.execute(
+                    text("""
                     insert into public.stock_movements
                       (organization_id,branch_id,product_variant_id,movement_type,quantity_change,
                        unit_cost,reference_type,reference_id,note,created_by)
                     values (:org,:branch,:variant,'opening',:quantity,:cost,'product',:product,
                             'Opening stock',:user)
-                """), {"org": context.organization_id, "branch": branch_id,
-                        "variant": variant["id"], "quantity": payload.opening_stock,
-                        "cost": payload.purchase_price, "product": product["id"], "user": user.id})
+                """),
+                    {
+                        "org": context.organization_id,
+                        "branch": branch_id,
+                        "variant": variant["id"],
+                        "quantity": payload.opening_stock,
+                        "cost": payload.purchase_price,
+                        "product": product["id"],
+                        "user": user.id,
+                    },
+                )
             if payload.master_item_id:
-                await session.execute(text("""
+                await session.execute(
+                    text("""
                     update public.product_master_items
                     set popularity_score=popularity_score+1 where id=:id
-                """), {"id": payload.master_item_id})
+                """),
+                    {"id": payload.master_item_id},
+                )
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="SKU or barcode already exists") from exc

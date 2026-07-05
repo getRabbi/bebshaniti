@@ -53,7 +53,10 @@ async def sale_detail(
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
-    sale = (await session.execute(text("""
+    sale = (
+        (
+            await session.execute(
+                text("""
         select s.id,s.invoice_no,s.memo_no,s.sale_type,s.status::text,s.payment_status,
                s.subtotal,s.discount_total,s.vat_total,s.grand_total,s.paid_total,s.due_total,
                s.profit_total,s.sold_at,s.completed_at,s.notes,s.footer_note,
@@ -68,24 +71,38 @@ async def sale_detail(
         join public.profiles p on p.id=s.cashier_id
         where s.id=:id and s.organization_id=:org
           and (cast(:branch as uuid) is null or s.branch_id=:branch)
-    """), {"id": sale_id, "org": context.organization_id,
-            "branch": context.branch_id})).mappings().one_or_none()
+    """),
+                {"id": sale_id, "org": context.organization_id, "branch": context.branch_id},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if sale is None:
         raise HTTPException(status_code=404, detail="Sale was not found")
-    items = await session.execute(text("""
+    items = await session.execute(
+        text("""
         select si.id,si.description,si.quantity,si.unit_price,si.discount,si.vat_rate,
                si.line_total,pv.sku,pv.barcode,u.symbol as unit_symbol
         from public.sale_items si
         join public.product_variants pv on pv.id=si.product_variant_id
         left join public.units u on u.id=si.unit_id
         where si.sale_id=:id and si.organization_id=:org order by si.created_at
-    """), {"id": sale_id, "org": context.organization_id})
-    payments = await session.execute(text("""
+    """),
+        {"id": sale_id, "org": context.organization_id},
+    )
+    payments = await session.execute(
+        text("""
         select method,amount,reference_no,paid_at from public.payments
         where sale_id=:id and organization_id=:org order by paid_at
-    """), {"id": sale_id, "org": context.organization_id})
-    return {**dict(sale), "items": [dict(row) for row in items.mappings().all()],
-            "payments": [dict(row) for row in payments.mappings().all()]}
+    """),
+        {"id": sale_id, "org": context.organization_id},
+    )
+    return {
+        **dict(sale),
+        "items": [dict(row) for row in items.mappings().all()],
+        "payments": [dict(row) for row in payments.mappings().all()],
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -163,19 +180,31 @@ async def create_sale(
         if due_total > 0 and payload.customer_id is None:
             raise HTTPException(status_code=422, detail="A customer is required for a due sale")
 
-        sequence = (await session.execute(text("""
+        sequence = (
+            await session.execute(
+                text("""
             insert into public.document_sequences(organization_id,branch_id,document_type,current_value)
             values (:org,:branch,'sale_memo',1)
             on conflict (organization_id,branch_id,document_type) do update
               set current_value=public.document_sequences.current_value+1,updated_at=now()
             returning current_value
-        """), {"org": context.organization_id, "branch": branch_id})).scalar_one()
-        prefix = (await session.execute(text("""
+        """),
+                {"org": context.organization_id, "branch": branch_id},
+            )
+        ).scalar_one()
+        prefix = (
+            await session.execute(
+                text("""
             select invoice_prefix from public.organizations where id=:org
-        """), {"org": context.organization_id})).scalar_one()
+        """),
+                {"org": context.organization_id},
+            )
+        ).scalar_one()
         memo_no = f"{prefix}-{sequence:06d}"
         invoice_no = memo_no
-        payment_status = "paid" if due_total == 0 else "partial" if payload.paid_amount > 0 else "unpaid"
+        payment_status = (
+            "paid" if due_total == 0 else "partial" if payload.paid_amount > 0 else "unpaid"
+        )
         sale = (
             (
                 await session.execute(
@@ -333,7 +362,9 @@ async def create_sale(
             )
 
         await session.execute(
-            text("update public.sales set status='completed', sold_at=now(), completed_at=now() where id=:id"),
+            text(
+                "update public.sales set status='completed', sold_at=now(), completed_at=now() where id=:id"
+            ),
             {"id": sale["id"]},
         )
     return {**dict(sale), "status": "completed"}
