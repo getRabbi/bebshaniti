@@ -1,0 +1,28 @@
+{
+  "name": "bd-business-os",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web_admin",
+    "apps/landing"
+  ],
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    }
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:admin": "npm run dev --workspace @bd-business-os/web-admin",
+    "dev:landing": "npm run dev --workspace @bd-business-os/landing"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "next": "^15.5.20",
+    "postcss": "^8.5.10"
+  }
+}

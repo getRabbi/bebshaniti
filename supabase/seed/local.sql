@@ -1,0 +1,3 @@
+-- Local-only seed entry point.
+-- Intentionally empty: Phase 0 does not create fake organizations or business data.
+-- Never run local seed files against staging or production.

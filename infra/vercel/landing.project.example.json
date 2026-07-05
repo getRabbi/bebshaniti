@@ -1,0 +1,6 @@
+{
+  "project": "bd-business-os-landing",
+  "rootDirectory": "apps/landing",
+  "framework": "nextjs",
+  "productionDomain": "example.com"
+}

@@ -1,0 +1,6 @@
+{
+  "project": "bd-business-os-admin",
+  "rootDirectory": "apps/web_admin",
+  "framework": "nextjs",
+  "productionDomain": "app.example.com"
+}

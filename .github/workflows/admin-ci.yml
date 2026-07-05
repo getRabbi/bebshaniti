@@ -1,0 +1,29 @@
+name: Admin CI
+
+on:
+  pull_request:
+    paths: ["apps/web_admin/**", "package*.json", ".github/workflows/admin-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["apps/web_admin/**", "package*.json", ".github/workflows/admin-ci.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://project-ref.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      NEXT_PUBLIC_API_BASE_URL: https://api.example.com/api/v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint --workspace @bd-business-os/web-admin
+      - run: npm run typecheck --workspace @bd-business-os/web-admin
+      - run: npm run build --workspace @bd-business-os/web-admin
