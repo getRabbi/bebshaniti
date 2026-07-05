@@ -14,6 +14,7 @@ from app.modules.due.router import router as due_router
 from app.modules.health.router import router as health_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.organizations.router import router as organizations_router
+from app.modules.product_master.router import router as product_master_router
 from app.modules.products.router import router as products_router
 from app.modules.reports.router import router as reports_router
 from app.modules.sales.router import router as sales_router
@@ -49,6 +50,7 @@ for api_router in (
     organizations_router,
     branches_router,
     products_router,
+    product_master_router,
     inventory_router,
     customers_router,
     sales_router,

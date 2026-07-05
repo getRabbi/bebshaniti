@@ -1,9 +1,13 @@
+# ruff: noqa: E501
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import require_roles
+from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context
 from app.db.session import get_db_session
 from app.schemas import ProductCreate
@@ -25,14 +29,23 @@ async def list_products(
             select p.id, p.name, p.name_bn, p.track_stock, p.status,
                    c.name as category_name, b.name as brand_name,
                    v.id as variant_id, v.variant_name, v.sku, v.barcode,
-                   v.purchase_price, v.retail_price, v.wholesale_price,
-                   v.reorder_level, u.symbol as unit_symbol
+                   v.purchase_price, v.retail_price, v.wholesale_price, v.mrp,
+                   v.pack_size, v.reorder_level, u.symbol as unit_symbol,
+                   p.rack_location, p.discount_allowed,
+                   coalesce(ib.quantity, 0) as stock_quantity
             from public.products p
             join public.product_variants v on v.product_id = p.id
               and v.organization_id = p.organization_id
             left join public.categories c on c.id = p.category_id
             left join public.brands b on b.id = p.brand_id
             left join public.units u on u.id = p.base_unit_id
+            left join lateral (
+              select sum(balance.quantity) as quantity
+              from public.inventory_balances balance
+              where balance.product_variant_id=v.id
+                and balance.organization_id=p.organization_id
+                and (:branch_id is null or balance.branch_id=:branch_id)
+            ) ib on true
             where p.organization_id = :organization_id
               and p.status <> 'archived' and v.status <> 'archived'
               and (:search is null or p.name ilike '%' || :search || '%'
@@ -41,7 +54,8 @@ async def list_products(
             order by p.name, v.variant_name limit :limit
             """
         ),
-        {"organization_id": context.organization_id, "search": search, "limit": limit},
+        {"organization_id": context.organization_id, "branch_id": context.branch_id,
+         "search": search, "limit": limit},
     )
     return [dict(row) for row in result.mappings().all()]
 
@@ -90,11 +104,60 @@ async def catalog_metadata(
 async def create_product(
     payload: ProductCreate,
     context: OrganizationContext = Depends(catalog_manager),
+    user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
     try:
         async with session.begin():
             base_unit_id = payload.base_unit_id
+            category_id = payload.category_id
+            brand_id = payload.brand_id
+            if payload.master_item_id:
+                master = (await session.execute(text("""
+                    select i.bn_name,i.en_name,i.brand_name,i.common_unit,c.bn_name as category_bn,c.en_name as category_en
+                    from public.product_master_items i
+                    join public.product_master_categories c on c.id=i.category_id
+                    where i.id=:id and i.is_active
+                """), {"id": payload.master_item_id})).mappings().one_or_none()
+                if master is None:
+                    raise HTTPException(status_code=404, detail="Product master item was not found")
+                if category_id is None:
+                    category_id = (await session.execute(text("""
+                        insert into public.categories(organization_id,name,name_bn)
+                        values (:org,:name,:name_bn)
+                        on conflict (organization_id,name) do update set name_bn=excluded.name_bn
+                        returning id
+                    """), {"org": context.organization_id, "name": master["category_en"],
+                            "name_bn": master["category_bn"]})).scalar_one()
+                if brand_id is None and master["brand_name"]:
+                    brand_id = (await session.execute(text("""
+                        insert into public.brands(organization_id,name) values (:org,:name)
+                        on conflict (organization_id,name) do update set is_active=true returning id
+                    """), {"org": context.organization_id, "name": master["brand_name"]})).scalar_one()
+                if base_unit_id is None:
+                    base_unit_id = (await session.execute(text("""
+                        insert into public.units(organization_id,name,symbol,precision)
+                        values (:org,:unit,:unit,case when :unit in ('kg','litre') then 3 else 0 end)
+                        on conflict (organization_id,symbol) do update set is_active=true returning id
+                    """), {"org": context.organization_id, "unit": master["common_unit"]})).scalar_one()
+            if brand_id is None and payload.brand_name:
+                brand_id = (await session.execute(text("""
+                    insert into public.brands(organization_id,name) values (:org,:name)
+                    on conflict (organization_id,name) do update set is_active=true returning id
+                """), {"org": context.organization_id, "name": payload.brand_name})).scalar_one()
+            supplier_id = payload.supplier_id
+            if supplier_id is None and payload.supplier_name:
+                supplier_id = (await session.execute(text("""
+                    select id from public.suppliers
+                    where organization_id=:org and lower(name)=lower(:name) limit 1
+                """), {"org": context.organization_id,
+                        "name": payload.supplier_name})).scalar_one_or_none()
+                if supplier_id is None:
+                    supplier_id = (await session.execute(text("""
+                        insert into public.suppliers(organization_id,branch_id,name,created_by)
+                        values (:org,:branch,:name,:user) returning id
+                    """), {"org": context.organization_id, "branch": context.branch_id,
+                            "name": payload.supplier_name, "user": user.id})).scalar_one()
             if base_unit_id is None:
                 base_unit_id = (
                     await session.execute(
@@ -117,20 +180,30 @@ async def create_product(
                             """
                         insert into public.products
                           (organization_id, category_id, brand_id, base_unit_id,
-                           name, name_bn, track_stock, created_by)
+                           name, name_bn, description, supplier_id, rack_location, notes,
+                           discount_allowed, expiry_tracking, track_stock, vat_rate, created_by)
                         values (:organization_id, :category_id, :brand_id, :base_unit_id,
-                                :name, :name_bn, :track_stock, null)
+                                :name, :name_bn, :description, :supplier_id, :rack_location, :notes,
+                                :discount_allowed, :expiry_tracking, :track_stock, :vat_rate, :created_by)
                         returning id, name, name_bn, track_stock, status
                         """
                         ),
                         {
                             "organization_id": context.organization_id,
-                            "category_id": payload.category_id,
-                            "brand_id": payload.brand_id,
+                            "category_id": category_id,
+                            "brand_id": brand_id,
                             "base_unit_id": base_unit_id,
                             "name": payload.name,
                             "name_bn": payload.name_bn,
+                            "description": payload.description,
+                            "supplier_id": supplier_id,
+                            "rack_location": payload.rack_location,
+                            "notes": payload.notes,
+                            "discount_allowed": payload.discount_allowed,
+                            "expiry_tracking": payload.expiry_tracking,
                             "track_stock": payload.track_stock,
+                            "vat_rate": payload.vat_rate,
+                            "created_by": user.id,
                         },
                     )
                 )
@@ -143,10 +216,12 @@ async def create_product(
                         text(
                             """
                         insert into public.product_variants
-                          (organization_id, product_id, sku, barcode, purchase_price,
-                           retail_price, wholesale_price, reorder_level)
-                        values (:organization_id, :product_id, :sku, :barcode, :purchase_price,
-                                :retail_price, :wholesale_price, :reorder_level)
+                          (organization_id, product_id, variant_name, sku, barcode, purchase_price,
+                           retail_price, wholesale_price, mrp, pack_size, batch_number,
+                           expiry_date, serial_number, reorder_level)
+                        values (:organization_id, :product_id, :variant_name, :sku, :barcode, :purchase_price,
+                                :retail_price, :wholesale_price, :mrp, :pack_size, :batch_number,
+                                :expiry_date, :serial_number, :reorder_level)
                         returning id, variant_name, sku, barcode, purchase_price,
                                   retail_price, wholesale_price, reorder_level, status
                         """
@@ -154,11 +229,17 @@ async def create_product(
                         {
                             "organization_id": context.organization_id,
                             "product_id": product["id"],
-                            "sku": payload.sku,
+                            "variant_name": payload.variant_name,
+                            "sku": payload.sku or f"SKU-{uuid4().hex[:10].upper()}",
                             "barcode": payload.barcode,
                             "purchase_price": payload.purchase_price,
                             "retail_price": payload.retail_price,
                             "wholesale_price": payload.wholesale_price,
+                            "mrp": payload.mrp,
+                            "pack_size": payload.pack_size,
+                            "batch_number": payload.batch_number,
+                            "expiry_date": payload.expiry_date,
+                            "serial_number": payload.serial_number,
                             "reorder_level": payload.reorder_level,
                         },
                     )
@@ -166,6 +247,28 @@ async def create_product(
                 .mappings()
                 .one()
             )
+            if payload.opening_stock > 0:
+                branch_id = payload.branch_id or context.branch_id
+                if branch_id is None:
+                    branch_id = (await session.execute(text("""
+                        select id from public.branches where organization_id=:org and is_main
+                    """), {"org": context.organization_id})).scalar_one_or_none()
+                if branch_id is None:
+                    raise HTTPException(status_code=409, detail="An active branch is required for opening stock")
+                await session.execute(text("""
+                    insert into public.stock_movements
+                      (organization_id,branch_id,product_variant_id,movement_type,quantity_change,
+                       unit_cost,reference_type,reference_id,note,created_by)
+                    values (:org,:branch,:variant,'opening',:quantity,:cost,'product',:product,
+                            'Opening stock',:user)
+                """), {"org": context.organization_id, "branch": branch_id,
+                        "variant": variant["id"], "quantity": payload.opening_stock,
+                        "cost": payload.purchase_price, "product": product["id"], "user": user.id})
+            if payload.master_item_id:
+                await session.execute(text("""
+                    update public.product_master_items
+                    set popularity_score=popularity_score+1 where id=:id
+                """), {"id": payload.master_item_id})
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="SKU or barcode already exists") from exc

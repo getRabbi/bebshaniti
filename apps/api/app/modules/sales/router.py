@@ -1,6 +1,6 @@
-from datetime import UTC, datetime
+# ruff: noqa: E501
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
@@ -44,6 +44,48 @@ async def list_sales(
         },
     )
     return [dict(row) for row in result.mappings().all()]
+
+
+@router.get("/{sale_id}")
+@router.get("/{sale_id}/memo")
+async def sale_detail(
+    sale_id: UUID,
+    context: OrganizationContext = Depends(get_organization_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, object]:
+    sale = (await session.execute(text("""
+        select s.id,s.invoice_no,s.memo_no,s.sale_type,s.status::text,s.payment_status,
+               s.subtotal,s.discount_total,s.vat_total,s.grand_total,s.paid_total,s.due_total,
+               s.profit_total,s.sold_at,s.completed_at,s.notes,s.footer_note,
+               b.id as branch_id,b.name as branch_name,b.address as branch_address,b.phone as branch_phone,
+               o.name as organization_name,o.phone as organization_phone,o.address as organization_address,
+               o.receipt_size,o.invoice_footer,c.name as customer_name,c.phone as customer_phone,
+               p.full_name as cashier_name
+        from public.sales s
+        join public.branches b on b.id=s.branch_id
+        join public.organizations o on o.id=s.organization_id
+        left join public.customers c on c.id=s.customer_id
+        join public.profiles p on p.id=s.cashier_id
+        where s.id=:id and s.organization_id=:org
+          and (:branch is null or s.branch_id=:branch)
+    """), {"id": sale_id, "org": context.organization_id,
+            "branch": context.branch_id})).mappings().one_or_none()
+    if sale is None:
+        raise HTTPException(status_code=404, detail="Sale was not found")
+    items = await session.execute(text("""
+        select si.id,si.description,si.quantity,si.unit_price,si.discount,si.vat_rate,
+               si.line_total,pv.sku,pv.barcode,u.symbol as unit_symbol
+        from public.sale_items si
+        join public.product_variants pv on pv.id=si.product_variant_id
+        left join public.units u on u.id=si.unit_id
+        where si.sale_id=:id and si.organization_id=:org order by si.created_at
+    """), {"id": sale_id, "org": context.organization_id})
+    payments = await session.execute(text("""
+        select method,amount,reference_no,paid_at from public.payments
+        where sale_id=:id and organization_id=:org order by paid_at
+    """), {"id": sale_id, "org": context.organization_id})
+    return {**dict(sale), "items": [dict(row) for row in items.mappings().all()],
+            "payments": [dict(row) for row in payments.mappings().all()]}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -121,20 +163,32 @@ async def create_sale(
         if due_total > 0 and payload.customer_id is None:
             raise HTTPException(status_code=422, detail="A customer is required for a due sale")
 
-        invoice_no = f"INV-{datetime.now(UTC):%Y%m%d}-{uuid4().hex[:8].upper()}"
+        sequence = (await session.execute(text("""
+            insert into public.document_sequences(organization_id,branch_id,document_type,current_value)
+            values (:org,:branch,'sale_memo',1)
+            on conflict (organization_id,branch_id,document_type) do update
+              set current_value=public.document_sequences.current_value+1,updated_at=now()
+            returning current_value
+        """), {"org": context.organization_id, "branch": branch_id})).scalar_one()
+        prefix = (await session.execute(text("""
+            select invoice_prefix from public.organizations where id=:org
+        """), {"org": context.organization_id})).scalar_one()
+        memo_no = f"{prefix}-{sequence:06d}"
+        invoice_no = memo_no
+        payment_status = "paid" if due_total == 0 else "partial" if payload.paid_amount > 0 else "unpaid"
         sale = (
             (
                 await session.execute(
                     text(
                         """
                     insert into public.sales
-                      (organization_id, branch_id, customer_id, invoice_no, sale_type, status,
+                      (organization_id, branch_id, customer_id, invoice_no, memo_no, sale_type, status,
                        subtotal, discount_total, vat_total, grand_total, paid_total, due_total,
-                       profit_total, cashier_id, notes)
-                    values (:organization_id, :branch_id, :customer_id, :invoice_no, :sale_type,
+                       profit_total, payment_status, cashier_id, notes, footer_note)
+                    values (:organization_id, :branch_id, :customer_id, :invoice_no, :memo_no, :sale_type,
                             'draft', :subtotal, :discount_total, :vat_total, :grand_total,
-                            :paid_total, :due_total, :profit_total, :cashier_id, :notes)
-                    returning id, invoice_no, grand_total, paid_total, due_total
+                            :paid_total, :due_total, :profit_total, :payment_status, :cashier_id, :notes, :footer_note)
+                    returning id, invoice_no, memo_no, grand_total, paid_total, due_total, payment_status
                     """
                     ),
                     {
@@ -142,6 +196,7 @@ async def create_sale(
                         "branch_id": branch_id,
                         "customer_id": payload.customer_id,
                         "invoice_no": invoice_no,
+                        "memo_no": memo_no,
                         "sale_type": payload.sale_type,
                         "subtotal": subtotal,
                         "discount_total": discount_total,
@@ -150,8 +205,10 @@ async def create_sale(
                         "paid_total": payload.paid_amount,
                         "due_total": due_total,
                         "profit_total": profit_total,
+                        "payment_status": payment_status,
                         "cashier_id": user.id,
                         "notes": payload.notes,
+                        "footer_note": payload.footer_note,
                     },
                 )
             )
@@ -276,7 +333,7 @@ async def create_sale(
             )
 
         await session.execute(
-            text("update public.sales set status = 'completed', sold_at = now() where id = :id"),
+            text("update public.sales set status='completed', sold_at=now(), completed_at=now() where id=:id"),
             {"id": sale["id"]},
         )
     return {**dict(sale), "status": "completed"}

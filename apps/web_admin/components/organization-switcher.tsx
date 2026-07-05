@@ -16,6 +16,7 @@ export function OrganizationSwitcher() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -30,6 +31,9 @@ export function OrganizationSwitcher() {
         const next = items.some((item) => item.id === cookieValue) ? cookieValue! : items[0]?.id ?? "";
         setSelected(next);
         if (next && next !== cookieValue) document.cookie = `organization_id=${next}; Path=/; SameSite=Lax`;
+      } catch (error) {
+        if (process.env.NODE_ENV !== "production") console.error("Organization load failed", error);
+        if (active) setFailed(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -39,7 +43,7 @@ export function OrganizationSwitcher() {
   }, []);
 
   if (!loading && organizations.length === 0) {
-    return <a className="org-switcher org-create" href="/onboarding"><span className="org-icon"><Icon name="plus" /></span><span><small>Current workspace</small><strong>Create your business</strong></span></a>;
+    return <a className="org-switcher org-create" href={failed?"/dashboard":"/onboarding"}><span className="org-icon"><Icon name="plus" /></span><span><small>বর্তমান ব্যবসা</small><strong>{failed?"আবার চেষ্টা করুন":"ব্যবসা তৈরি করুন"}</strong></span></a>;
   }
 
   return (

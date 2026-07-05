@@ -1,42 +1,5 @@
 "use client";
-
-import { FormEvent, useState } from "react";
-
-import { createClient } from "@/lib/supabase-browser";
-
-export default function LoginPage() {
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
-    const form = new FormData(event.currentTarget);
-    const { error: authError } = await createClient().auth.signInWithPassword({ email: String(form.get("email")), password: String(form.get("password")) });
-    if (authError) { setError(authError.message); setPending(false); return; }
-    window.location.assign("/dashboard");
-  }
-
-  return (
-    <main className="auth-shell">
-      <section className="auth-story" aria-label="About the admin workspace">
-        <div className="auth-brand"><span className="auth-brand-mark">B</span><span>Business OS<small>Bangladesh</small></span></div>
-        <div className="auth-message"><p className="auth-kicker">Secure owner workspace</p><h2>Your business, under control.</h2><p>Monitor operations, protect business data and give every team member the access they need—nothing more.</p></div>
-        <div className="auth-points"><span>Tenant isolated</span><span>Permission aware</span><span>Audit ready</span></div>
-      </section>
-      <section className="auth-form-side">
-        <form className="auth-card" onSubmit={submit}>
-          <div className="auth-brand mobile-brand"><span className="auth-brand-mark">B</span><span>Business OS<small>Bangladesh</small></span></div>
-          <p className="page-eyebrow">Admin portal</p><h1>Welcome back</h1><p className="auth-intro">Sign in with the account assigned to your business workspace.</p>
-          <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" placeholder="you@business.com" required /></label>
-          <label className="field"><span>Password</span><input name="password" type="password" autoComplete="current-password" placeholder="Enter your password" required /></label>
-          {error ? <p className="error" role="alert">{error}</p> : null}
-          <button className="button auth-submit" type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in securely"}</button>
-          <p className="auth-switch">New business owner? <a href="/register">Create an account</a></p>
-          <p className="auth-footnote">Access is limited to approved organization members.</p>
-        </form>
-      </section>
-    </main>
-  );
-}
+import Link from "next/link";
+import {FormEvent,useState} from "react";
+import {createClient} from "@/lib/supabase-browser";
+export default function LoginPage(){const[error,setError]=useState<string|null>(null);const[pending,setPending]=useState(false);async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setPending(true);setError(null);const form=new FormData(event.currentTarget);const{error:authError}=await createClient().auth.signInWithPassword({email:String(form.get("email")),password:String(form.get("password"))});if(authError){if(process.env.NODE_ENV!=="production")console.error(authError);setError("ইমেইল বা পাসওয়ার্ড সঠিক নয়।");setPending(false);return;}location.assign("/dashboard");}return <main className="auth-shell"><section className="auth-story"><div className="auth-brand"><span className="auth-brand-mark">B</span><span>ব্যবসানীতি<small>Business OS</small></span></div><div className="auth-message"><p className="auth-kicker">নিরাপদ ব্যবসা ওয়ার্কস্পেস</p><h2>ব্যবসার নিয়ন্ত্রণ, আপনার হাতে।</h2><p>বিক্রয়, স্টক, কাস্টমার ও বাকি—এক জায়গায় নিরাপদে পরিচালনা করুন।</p></div><div className="auth-points"><span>Tenant isolation</span><span>Role permission</span><span>Audit ready</span></div></section><section className="auth-form-side"><form className="auth-card" onSubmit={submit}><p className="page-eyebrow">অ্যাডমিন পোর্টাল</p><h1>লগইন করুন</h1><p className="auth-intro">আপনার ব্যবসা ওয়ার্কস্পেসের অ্যাকাউন্ট ব্যবহার করুন।</p><label className="field"><span>ইমেইল</span><input name="email" type="email" autoComplete="email" required/></label><label className="field"><span>পাসওয়ার্ড</span><input name="password" type="password" autoComplete="current-password" required/></label>{error?<p className="error" role="alert">{error}</p>:null}<button className="button auth-submit" disabled={pending}>{pending?"লগইন হচ্ছে…":"নিরাপদে লগইন"}</button><p className="auth-switch">নতুন ব্যবসা? <Link href="/register">অ্যাকাউন্ট তৈরি করুন</Link></p></form></section></main>}

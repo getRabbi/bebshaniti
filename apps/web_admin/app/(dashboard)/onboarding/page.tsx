@@ -7,7 +7,10 @@ import { apiRequest } from "@/lib/api";
 import { createClient } from "@/lib/supabase-browser";
 
 function slugify(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const ascii = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (ascii) return ascii;
+  const hash = Array.from(value).reduce((total, char) => (total * 31 + char.charCodeAt(0)) >>> 0, 2166136261);
+  return value.trim() ? `business-${hash.toString(36)}` : "";
 }
 
 export default function OnboardingPage() {

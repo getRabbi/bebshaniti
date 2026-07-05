@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -37,7 +37,8 @@ class OrganizationCreate(ApiModel):
 class ProductCreate(ApiModel):
     name: str = Field(min_length=1, max_length=180)
     name_bn: str | None = Field(default=None, max_length=180)
-    sku: str = Field(min_length=1, max_length=80)
+    master_item_id: UUID | None = None
+    sku: str | None = Field(default=None, max_length=80)
     barcode: str | None = Field(default=None, max_length=100)
     category_id: UUID | None = None
     brand_id: UUID | None = None
@@ -47,6 +48,23 @@ class ProductCreate(ApiModel):
     wholesale_price: Decimal = Field(default=Decimal("0"), ge=0)
     reorder_level: Decimal = Field(default=Decimal("0"), ge=0)
     track_stock: bool = True
+    description: str | None = Field(default=None, max_length=2000)
+    variant_name: str = Field(default="Default", max_length=120)
+    brand_name: str | None = Field(default=None, max_length=120)
+    supplier_id: UUID | None = None
+    supplier_name: str | None = Field(default=None, max_length=180)
+    pack_size: str | None = Field(default=None, max_length=120)
+    mrp: Decimal | None = Field(default=None, ge=0)
+    opening_stock: Decimal = Field(default=Decimal("0"), ge=0)
+    branch_id: UUID | None = None
+    vat_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    discount_allowed: bool = True
+    expiry_tracking: bool = False
+    expiry_date: date | None = None
+    batch_number: str | None = Field(default=None, max_length=120)
+    serial_number: str | None = Field(default=None, max_length=120)
+    rack_location: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class CustomerCreate(ApiModel):
@@ -84,6 +102,22 @@ class SaleCreate(ApiModel):
     payment_method: Literal["cash", "bkash", "nagad", "rocket", "bank", "card", "cheque"] = "cash"
     reference_no: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=500)
+    footer_note: str | None = Field(default=None, max_length=500)
+
+
+class ProductMasterImportItem(ApiModel):
+    category_slug: str = Field(min_length=2, max_length=100)
+    bn_name: str = Field(min_length=1, max_length=180)
+    en_name: str = Field(min_length=1, max_length=180)
+    brand_name: str | None = Field(default=None, max_length=120)
+    common_unit: str = Field(default="pcs", max_length=40)
+    common_pack_size: str | None = Field(default=None, max_length=80)
+    aliases: list[str] = Field(default_factory=list, max_length=30)
+    barcode: str | None = Field(default=None, max_length=100)
+
+
+class ProductMasterImport(ApiModel):
+    items: list[ProductMasterImportItem] = Field(min_length=1, max_length=5000)
 
 
 class DueCollectionCreate(ApiModel):
