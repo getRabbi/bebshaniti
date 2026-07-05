@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  analyze-test:
+  flutter-analyze-test:
     runs-on: ubuntu-latest
     defaults:
       run:
