@@ -21,7 +21,7 @@ This is not yet the full product roadmap or an approval for public merchant laun
 - Node.js 22+ and npm 10+
 - Python 3.12+
 - Docker Desktop and Supabase CLI
-- Flutter stable with Dart 3.6+ for POS work
+- Flutter 3.44.1 with Dart 3.12.1 for reproducible POS checks
 
 ## Local bootstrap
 
