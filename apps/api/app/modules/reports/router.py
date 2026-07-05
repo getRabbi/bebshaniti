@@ -13,25 +13,25 @@ async def summary_query(context: OrganizationContext, session: AsyncSession) -> 
     result = await session.execute(text("""
         select
           coalesce((select sum(grand_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (:branch is null or branch_id=:branch)),0) sales_today,
+            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) sales_today,
           coalesce((select sum(profit_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (:branch is null or branch_id=:branch)),0) profit_today,
+            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) profit_today,
           coalesce((select sum(grand_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=date_trunc('month',now()) and (:branch is null or branch_id=:branch)),0) sales_this_month,
+            and status='completed' and sold_at>=date_trunc('month',now()) and (cast(:branch as uuid) is null or branch_id=:branch)),0) sales_this_month,
           coalesce((select sum(profit_total) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=date_trunc('month',now()) and (:branch is null or branch_id=:branch)),0) gross_profit,
+            and status='completed' and sold_at>=date_trunc('month',now()) and (cast(:branch as uuid) is null or branch_id=:branch)),0) gross_profit,
           coalesce((select count(*) from public.sales where organization_id=:org
-            and status='completed' and sold_at>=current_date and (:branch is null or branch_id=:branch)),0) transactions_today,
+            and status='completed' and sold_at>=current_date and (cast(:branch as uuid) is null or branch_id=:branch)),0) transactions_today,
           coalesce((select sum(debit-credit) from public.customer_ledger_entries where organization_id=:org
-            and (:branch is null or branch_id=:branch)),0) receivable_due,
+            and (cast(:branch as uuid) is null or branch_id=:branch)),0) receivable_due,
           coalesce((select count(*) from public.inventory_balances ib join public.product_variants pv on pv.id=ib.product_variant_id
-            where ib.organization_id=:org and ib.quantity<=pv.reorder_level and (:branch is null or ib.branch_id=:branch)),0) low_stock_items,
+            where ib.organization_id=:org and ib.quantity<=pv.reorder_level and (cast(:branch as uuid) is null or ib.branch_id=:branch)),0) low_stock_items,
           coalesce((select sum(quantity*avg_cost) from public.inventory_balances where organization_id=:org
-            and (:branch is null or branch_id=:branch)),0) inventory_value,
+            and (cast(:branch as uuid) is null or branch_id=:branch)),0) inventory_value,
           coalesce((select count(*) from public.products where organization_id=:org and status='active'),0) total_products,
           coalesce((select count(*) from public.customers where organization_id=:org and status='active'),0) total_customers,
           coalesce((select sum(amount) from public.payments where organization_id=:org and paid_at>=current_date
-            and (:branch is null or branch_id=:branch)),0) collection_today
+            and (cast(:branch as uuid) is null or branch_id=:branch)),0) collection_today
     """), {"org": context.organization_id, "branch": context.branch_id})
     return dict(result.mappings().one())
 
@@ -57,20 +57,20 @@ async def sales_report(
              sum(profit_total) as profit,sum(due_total) as due
       from public.sales where organization_id=:org and status='completed'
         and sold_at>=current_date-(:days-1)*interval '1 day'
-        and (:branch is null or branch_id=:branch)
+        and (cast(:branch as uuid) is null or branch_id=:branch)
       group by sold_at::date order by date
     """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
     payment = await session.execute(text("""
       select method,sum(amount) as amount,count(*) as transactions from public.payments
       where organization_id=:org and paid_at>=current_date-(:days-1)*interval '1 day'
-        and (:branch is null or branch_id=:branch) group by method order by amount desc
+        and (cast(:branch as uuid) is null or branch_id=:branch) group by method order by amount desc
     """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
     best = await session.execute(text("""
       select si.description,sum(si.quantity) as quantity,sum(si.line_total) as sales
       from public.sale_items si join public.sales s on s.id=si.sale_id
       where si.organization_id=:org and s.status='completed'
         and s.sold_at>=current_date-(:days-1)*interval '1 day'
-        and (:branch is null or si.branch_id=:branch)
+        and (cast(:branch as uuid) is null or si.branch_id=:branch)
       group by si.description order by quantity desc limit 10
     """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
     return {"daily": [dict(r) for r in daily.mappings().all()],
@@ -89,7 +89,7 @@ async def inventory_report(
              bool_or(ib.quantity<=pv.reorder_level) as low_stock
       from public.products p join public.product_variants pv on pv.product_id=p.id
       left join public.inventory_balances ib on ib.product_variant_id=pv.id
-        and (:branch is null or ib.branch_id=:branch)
+        and (cast(:branch as uuid) is null or ib.branch_id=:branch)
       where p.organization_id=:org and p.status='active'
       group by p.name,p.name_bn,pv.sku,pv.reorder_level order by stock_value desc
     """), {"org": context.organization_id, "branch": context.branch_id})
@@ -107,7 +107,7 @@ async def due_report(
       select c.id,c.name,c.phone,c.credit_limit,sum(l.debit-l.credit) balance,
              max(l.created_at) last_activity
       from public.customers c join public.customer_ledger_entries l on l.customer_id=c.id
-      where c.organization_id=:org and (:branch is null or l.branch_id=:branch)
+      where c.organization_id=:org and (cast(:branch as uuid) is null or l.branch_id=:branch)
       group by c.id,c.name,c.phone,c.credit_limit having sum(l.debit-l.credit)>0
       order by balance desc
     """), {"org": context.organization_id, "branch": context.branch_id})
@@ -129,6 +129,6 @@ async def profit_report(
                round(sum(profit_total)/sum(subtotal-discount_total)*100,2) else 0 end profit_margin
       from public.sales where organization_id=:org and status='completed'
         and sold_at>=current_date-(:days-1)*interval '1 day'
-        and (:branch is null or branch_id=:branch)
+        and (cast(:branch as uuid) is null or branch_id=:branch)
     """), {"org": context.organization_id, "branch": context.branch_id, "days": days})
     return dict(result.mappings().one())

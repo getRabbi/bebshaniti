@@ -34,7 +34,7 @@ async def list_subcategories(
     result = await session.execute(text("""
         select id, category_id, bn_name, en_name, slug
         from public.product_master_subcategories
-        where is_active and (:category_id is null or category_id = cast(:category_id as uuid))
+        where is_active and (cast(:category_id as uuid) is null or category_id = cast(:category_id as uuid))
         order by bn_name
     """), {"category_id": category_id})
     return [dict(row) for row in result.mappings().all()]

@@ -33,7 +33,7 @@ async def list_sales(
             left join public.customers c on c.id = s.customer_id
             join public.profiles p on p.id = s.cashier_id
             where s.organization_id = :organization_id
-              and (:branch_id is null or s.branch_id = :branch_id)
+              and (cast(:branch_id as uuid) is null or s.branch_id = :branch_id)
             order by coalesce(s.sold_at, s.created_at) desc limit :limit
             """
         ),
@@ -67,7 +67,7 @@ async def sale_detail(
         left join public.customers c on c.id=s.customer_id
         join public.profiles p on p.id=s.cashier_id
         where s.id=:id and s.organization_id=:org
-          and (:branch is null or s.branch_id=:branch)
+          and (cast(:branch as uuid) is null or s.branch_id=:branch)
     """), {"id": sale_id, "org": context.organization_id,
             "branch": context.branch_id})).mappings().one_or_none()
     if sale is None:

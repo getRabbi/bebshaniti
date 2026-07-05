@@ -28,7 +28,7 @@ async def list_due(
               on l.customer_id = c.id and l.organization_id = c.organization_id
             where c.organization_id = :organization_id
               and c.status = 'active'
-              and (:branch_id is null or c.branch_id = :branch_id)
+              and (cast(:branch_id as uuid) is null or c.branch_id = :branch_id)
             group by c.id
             having coalesce(sum(l.debit - l.credit), 0) <> 0
             order by balance desc

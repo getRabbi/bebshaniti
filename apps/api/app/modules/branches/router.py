@@ -22,7 +22,7 @@ async def list_branches(
             left join public.warehouses w on w.organization_id = b.organization_id
               and w.branch_id = b.id and w.is_active
             where b.organization_id = :organization_id
-              and (:branch_id is null or b.id = :branch_id)
+              and (cast(:branch_id as uuid) is null or b.id = :branch_id)
             group by b.id order by b.is_main desc, b.name
             """
         ),

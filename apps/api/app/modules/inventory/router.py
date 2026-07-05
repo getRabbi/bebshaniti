@@ -34,7 +34,7 @@ async def inventory_balances(
             join public.products p on p.id = pv.product_id
             left join public.warehouses w on w.id = ib.warehouse_id
             where ib.organization_id = :organization_id
-              and (:branch_id is null or ib.branch_id = :branch_id)
+              and (cast(:branch_id as uuid) is null or ib.branch_id = :branch_id)
               and (not :low_stock or ib.quantity <= pv.reorder_level)
             order by p.name, pv.variant_name, br.name
             """

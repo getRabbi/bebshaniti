@@ -30,8 +30,8 @@ async def list_customers(
               on l.customer_id = c.id and l.organization_id = c.organization_id
             where c.organization_id = :organization_id
               and c.status <> 'archived'
-              and (:branch_id is null or c.branch_id = :branch_id)
-              and (:search is null or c.name ilike '%' || :search || '%'
+              and (cast(:branch_id as uuid) is null or c.branch_id = :branch_id)
+              and (cast(:search as text) is null or c.name ilike '%' || :search || '%'
                 or c.phone ilike '%' || :search || '%')
             group by c.id, b.name order by c.name
             """

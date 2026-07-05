@@ -44,11 +44,11 @@ async def list_products(
               from public.inventory_balances balance
               where balance.product_variant_id=v.id
                 and balance.organization_id=p.organization_id
-                and (:branch_id is null or balance.branch_id=:branch_id)
+                and (cast(:branch_id as uuid) is null or balance.branch_id=:branch_id)
             ) ib on true
             where p.organization_id = :organization_id
               and p.status <> 'archived' and v.status <> 'archived'
-              and (:search is null or p.name ilike '%' || :search || '%'
+              and (cast(:search as text) is null or p.name ilike '%' || :search || '%'
                 or v.sku ilike '%' || :search || '%'
                 or v.barcode ilike '%' || :search || '%')
             order by p.name, v.variant_name limit :limit
