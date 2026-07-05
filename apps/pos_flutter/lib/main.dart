@@ -21,9 +21,9 @@ class PosApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp.router(
-    title: 'Business OS POS',
-    debugShowCheckedModeBanner: Environment.appEnv != 'production',
-    theme: buildTheme(),
-    routerConfig: buildRouter(),
-  );
+        title: 'Business OS POS',
+        debugShowCheckedModeBanner: Environment.appEnv != 'production',
+        theme: buildTheme(),
+        routerConfig: buildRouter(),
+      );
 }
