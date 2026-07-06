@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  api-test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,4 +28,5 @@ jobs:
       - run: ruff check app tests
       - run: ruff format --check app tests
       - run: mypy app
-      - run: pytest
+      - run: pip-audit
+      - run: pytest --cov=app --cov-report=term --cov-fail-under=50

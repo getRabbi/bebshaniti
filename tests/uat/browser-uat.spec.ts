@@ -3,12 +3,16 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const tag = process.env.UAT_TAG ?? "20260705-171851";
-const organizationId =
-  process.env.UAT_ORGANIZATION_ID ?? "6426372f-1070-44f9-9d82-b7ea6fedd79e";
-const saleId = process.env.UAT_SALE_ID ?? "62db3962-49e7-4617-a77d-8640a286460e";
-const customerId =
-  process.env.UAT_CUSTOMER_ID ?? "15f02914-cc4e-4ef6-82cf-ad49cc9dce83";
+function requiredEnvironment(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required for production UAT`);
+  return value;
+}
+
+const tag = requiredEnvironment("UAT_TAG");
+const organizationId = requiredEnvironment("UAT_ORGANIZATION_ID");
+const saleId = requiredEnvironment("UAT_SALE_ID");
+const customerId = requiredEnvironment("UAT_CUSTOMER_ID");
 const email = `uat-${tag}-owner@bebshaniti.test`;
 
 function apiEnvironment() {
@@ -72,6 +76,7 @@ async function expectNoRootOverflow(page: Page) {
 }
 
 test.beforeAll(async () => {
+  expect(process.env.UAT_ALLOW_PRODUCTION_MUTATIONS).toBe("I_UNDERSTAND");
   expect(supabaseUrl).toMatch(/^https:\/\//);
   expect(serviceRole.length).toBeGreaterThan(40);
   await resetOwnerPassword();

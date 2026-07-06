@@ -135,7 +135,14 @@ export function ReportsLive() {
     const csv = rows
       .map((row) =>
         row
-          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .map((value) => {
+            const text = String(value);
+            const safe =
+              typeof value === "string" && /^[=+\-@\t\r]/.test(text)
+                ? `'${text}`
+                : text;
+            return `"${safe.replaceAll('"', '""')}"`;
+          })
           .join(","),
       )
       .join("\n");

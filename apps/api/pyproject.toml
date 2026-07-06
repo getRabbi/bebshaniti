@@ -20,7 +20,8 @@ dependencies = [
 dev = [
   "httpx>=0.28,<1",
   "mypy>=1.14,<2",
-  "pytest>=8.3,<9",
+  "pip-audit>=2.9,<3",
+  "pytest>=9.0.3,<10",
   "pytest-cov>=6,<7",
   "ruff>=0.9,<1",
 ]

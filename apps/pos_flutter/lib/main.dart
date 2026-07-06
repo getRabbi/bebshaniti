@@ -11,7 +11,7 @@ Future<void> main() async {
   Environment.validate();
   await Supabase.initialize(
     url: Environment.supabaseUrl,
-    anonKey: Environment.supabaseAnonKey,
+    publishableKey: Environment.supabaseAnonKey,
   );
   runApp(const ProviderScope(child: PosApp()));
 }
@@ -21,9 +21,9 @@ class PosApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp.router(
-    title: 'Business OS POS',
-    debugShowCheckedModeBanner: Environment.appEnv != 'production',
-    theme: buildTheme(),
-    routerConfig: buildRouter(),
-  );
+        title: 'Business OS POS',
+        debugShowCheckedModeBanner: Environment.appEnv != 'production',
+        theme: buildTheme(),
+        routerConfig: buildRouter(),
+      );
 }

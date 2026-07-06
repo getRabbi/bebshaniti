@@ -4,7 +4,12 @@ $tracked = git ls-files --cached --others --exclude-standard
 $patterns = @(
   'SUPABASE_SERVICE_ROLE_KEY\s*=\s*eyJ',
   'SUPABASE_JWT_SECRET\s*=\s*[^\s#]+',
-  'postgres(?:ql)?://[^:]+:[^@]+@'
+  'postgres(?:ql)?://[^:]+:[^@]+@',
+  '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
+  'gh[pousr]_[A-Za-z0-9_]{30,}',
+  'github_pat_[A-Za-z0-9_]{30,}',
+  'AKIA[0-9A-Z]{16}',
+  'sk_(?:live|test)_[A-Za-z0-9]{20,}'
 )
 
 foreach ($file in $tracked) {

@@ -155,6 +155,24 @@ async def create_sale(
 ) -> dict[str, object]:
     async with session.begin():
         branch_id = await resolve_branch_id(context, session, payload.branch_id)
+        organization = (
+            (
+                await session.execute(
+                    text(
+                        "select invoice_prefix, settings from public.organizations "
+                        "where id=:organization_id"
+                    ),
+                    {"organization_id": context.organization_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        organization_settings = organization["settings"]
+        allow_negative_stock = (
+            isinstance(organization_settings, dict)
+            and organization_settings.get("allow_negative_stock") is True
+        )
 
         if payload.customer_id is not None:
             customer_exists = (
@@ -233,6 +251,56 @@ async def create_sale(
             profit_total += taxable - (item.quantity * Decimal(variant["purchase_price"]))
             lines.append((variant, item.quantity, unit_price, item.discount, line_total))
 
+        if not allow_negative_stock:
+            required_stock: dict[UUID, Decimal] = {}
+            for variant, quantity, _, _, _ in lines:
+                if variant["track_stock"]:
+                    variant_id = UUID(str(variant["id"]))
+                    required_stock[variant_id] = (
+                        required_stock.get(variant_id, Decimal("0")) + quantity
+                    )
+            for variant_id in sorted(required_stock, key=str):
+                required_quantity = required_stock[variant_id]
+                await session.execute(
+                    text(
+                        """
+                        select pg_advisory_xact_lock(hashtextextended(
+                          cast(:organization_id as text) || ':' ||
+                          cast(:branch_id as text) || ':' || cast(:variant_id as text), 0
+                        ))
+                        """
+                    ),
+                    {
+                        "organization_id": context.organization_id,
+                        "branch_id": branch_id,
+                        "variant_id": variant_id,
+                    },
+                )
+                balances = (
+                    await session.execute(
+                        text(
+                            """
+                            select quantity from public.inventory_balances
+                            where organization_id=:organization_id
+                              and branch_id=:branch_id
+                              and product_variant_id=:variant_id
+                            for update
+                            """
+                        ),
+                        {
+                            "organization_id": context.organization_id,
+                            "branch_id": branch_id,
+                            "variant_id": variant_id,
+                        },
+                    )
+                ).scalars()
+                available = sum((Decimal(value) for value in balances), Decimal("0"))
+                if available < required_quantity:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Insufficient stock for a sale item",
+                    )
+
         grand_total = subtotal - discount_total + vat_total
         if payload.paid_amount > grand_total:
             raise HTTPException(status_code=422, detail="Paid amount exceeds the sale total")
@@ -252,14 +320,7 @@ async def create_sale(
                 {"org": context.organization_id, "branch": branch_id},
             )
         ).scalar_one()
-        prefix = (
-            await session.execute(
-                text("""
-            select invoice_prefix from public.organizations where id=:org
-        """),
-                {"org": context.organization_id},
-            )
-        ).scalar_one()
+        prefix = organization["invoice_prefix"]
         memo_no = f"{prefix}-{sequence:06d}"
         invoice_no = memo_no
         payment_status = (

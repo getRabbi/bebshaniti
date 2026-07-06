@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -35,6 +35,32 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def validate_production_configuration(self) -> "Settings":
+        if self.app_env != "production":
+            return self
+
+        required = {
+            "SUPABASE_URL": self.supabase_url,
+            "SUPABASE_ANON_KEY": self.supabase_anon_key,
+            "SUPABASE_SERVICE_ROLE_KEY": self.supabase_service_role_key,
+            "DATABASE_URL": self.database_url,
+        }
+        missing = [name for name, value in required.items() if not value.strip()]
+        if missing:
+            raise ValueError(
+                f"Missing required production environment variables: {', '.join(missing)}"
+            )
+        if not self.supabase_jwt_secret and not self.effective_jwks_url:
+            raise ValueError("Production JWT verification is not configured")
+        if not self.allowed_origins or "*" in self.allowed_origins:
+            raise ValueError("Production ALLOWED_ORIGINS must be an explicit allowlist")
+        if any(not origin.startswith("https://") for origin in self.allowed_origins):
+            raise ValueError("Production ALLOWED_ORIGINS entries must use HTTPS")
+        if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
+            raise ValueError("Production DATABASE_URL cannot target localhost")
+        return self
 
     @property
     def effective_jwks_url(self) -> str:
