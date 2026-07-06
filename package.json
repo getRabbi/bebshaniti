@@ -26,6 +26,6 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "next": "^15.5.20",
-    "postcss": "^8.5.10"
+    "postcss": "^8.5.16"
   }
 }
