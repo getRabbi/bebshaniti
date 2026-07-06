@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { resolveOrganizationId } from "@/lib/organization";
 import { createClient } from "@/lib/supabase-browser";
 
 type AuditRow = {
@@ -16,20 +17,13 @@ type AuditRow = {
   actor_name?: string;
   actor_email?: string;
 };
-function org() {
-  return (
-    document.cookie
-      .split("; ")
-      .find((part) => part.startsWith("organization_id="))
-      ?.split("=")[1] ?? ""
-  );
-}
 export function AuditLogViewer() {
   const { t, locale } = useI18n();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
   useEffect(() => {
     void (async () => {
       const { data } = await createClient().auth.getSession();
@@ -37,13 +31,16 @@ export function AuditLogViewer() {
         location.assign("/login");
         return;
       }
-      setToken(data.session.access_token);
+      const accessToken = data.session.access_token;
+      const resolved = await resolveOrganizationId(accessToken);
+      if (!resolved) {
+        location.assign("/onboarding");
+        return;
+      }
+      setToken(accessToken);
+      setOrganizationId(resolved);
       setRows(
-        await apiRequest<AuditRow[]>(
-          "/audit-logs",
-          data.session.access_token,
-          org(),
-        ),
+        await apiRequest<AuditRow[]>("/audit-logs", accessToken, resolved),
       );
     })();
   }, []);
@@ -59,7 +56,11 @@ export function AuditLogViewer() {
     }
     try {
       setRows(
-        await apiRequest<AuditRow[]>(`/audit-logs?${query}`, token, org()),
+        await apiRequest<AuditRow[]>(
+          `/audit-logs?${query}`,
+          token,
+          organizationId,
+        ),
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t("loadError"));

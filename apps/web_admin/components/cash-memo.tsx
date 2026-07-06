@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { normalizeNumericInput, parseLocalizedNumber } from "@/lib/numbers";
+import { resolveOrganizationId } from "@/lib/organization";
 import { createClient } from "@/lib/supabase-browser";
 
 type Item = {
@@ -46,15 +48,6 @@ type Memo = {
   }>;
   void_event?: { id: string; reason: string; created_at: string };
 };
-function org() {
-  return (
-    document.cookie
-      .split("; ")
-      .find((part) => part.startsWith("organization_id="))
-      ?.split("=")[1] ?? ""
-  );
-}
-
 export function CashMemo({
   saleId,
   autoPrint = false,
@@ -73,8 +66,9 @@ export function CashMemo({
   const [error, setError] = useState("");
   const [action, setAction] = useState<"void" | "return" | null>(null);
   const [reason, setReason] = useState("");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [organizationId, setOrganizationId] = useState("");
   const statusLabel =
     {
       draft: t("statusDraft"),
@@ -93,16 +87,22 @@ export function CashMemo({
         location.assign("/login");
         return;
       }
+      const resolved = await resolveOrganizationId(data.session.access_token);
+      if (!resolved) {
+        location.assign("/onboarding");
+        return;
+      }
+      setOrganizationId(resolved);
       const [sale, current] = await Promise.all([
         apiRequest<Memo>(
           `/sales/${saleId}/memo`,
           data.session.access_token,
-          org(),
+          resolved,
         ),
         apiRequest<{ permissions: string[] }>(
           "/organizations/current",
           data.session.access_token,
-          org(),
+          resolved,
         ),
       ]);
       setMemo(sale);
@@ -124,11 +124,15 @@ export function CashMemo({
     try {
       const { data } = await createClient().auth.getSession();
       if (!data.session) return;
+      const resolved =
+        organizationId ||
+        (await resolveOrganizationId(data.session.access_token));
+      if (!resolved) return;
       if (action === "void")
         await apiRequest(
           `/sales/${saleId}/void`,
           data.session.access_token,
-          org(),
+          resolved,
           {
             method: "POST",
             body: JSON.stringify({ reason, refund_method: "cash" }),
@@ -136,10 +140,10 @@ export function CashMemo({
         );
       else {
         const items = memo.items
-          .filter((item) => (quantities[item.id] ?? 0) > 0)
+          .filter((item) => parseLocalizedNumber(quantities[item.id]) > 0)
           .map((item) => ({
             sale_item_id: item.id,
-            quantity: quantities[item.id],
+            quantity: parseLocalizedNumber(quantities[item.id]),
           }));
         if (!items.length) {
           setError(t("returnQuantity"));
@@ -148,7 +152,7 @@ export function CashMemo({
         await apiRequest(
           `/sales/${saleId}/returns`,
           data.session.access_token,
-          org(),
+          resolved,
           {
             method: "POST",
             body: JSON.stringify({ reason, refund_method: "cash", items }),
@@ -311,15 +315,13 @@ export function CashMemo({
                       </small>
                     </span>
                     <input
-                      type="number"
-                      min="0"
-                      max={item.quantity}
-                      step="0.0001"
-                      value={quantities[item.id] ?? 0}
+                      type="text"
+                      inputMode="decimal"
+                      value={quantities[item.id] ?? ""}
                       onChange={(event) =>
                         setQuantities((current) => ({
                           ...current,
-                          [item.id]: Number(event.target.value),
+                          [item.id]: normalizeNumericInput(event.target.value),
                         }))
                       }
                     />

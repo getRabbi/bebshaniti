@@ -41,8 +41,10 @@ class ProductCreate(ApiModel):
     sku: str | None = Field(default=None, max_length=80)
     barcode: str | None = Field(default=None, max_length=100)
     category_id: UUID | None = None
+    category_name: str | None = Field(default=None, max_length=120)
     brand_id: UUID | None = None
     base_unit_id: UUID | None = None
+    unit_name: str | None = Field(default=None, max_length=40)
     purchase_price: Decimal = Field(default=Decimal("0"), ge=0)
     retail_price: Decimal = Field(default=Decimal("0"), ge=0)
     wholesale_price: Decimal = Field(default=Decimal("0"), ge=0)

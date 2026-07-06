@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.locking import acquire_inventory_lock
 from app.core.permissions import has_permission, require_permission
 from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context, resolve_branch_id
@@ -261,20 +262,8 @@ async def create_sale(
                     )
             for variant_id in sorted(required_stock, key=str):
                 required_quantity = required_stock[variant_id]
-                await session.execute(
-                    text(
-                        """
-                        select pg_advisory_xact_lock(hashtextextended(
-                          cast(:organization_id as text) || ':' ||
-                          cast(:branch_id as text) || ':' || cast(:variant_id as text), 0
-                        ))
-                        """
-                    ),
-                    {
-                        "organization_id": context.organization_id,
-                        "branch_id": branch_id,
-                        "variant_id": variant_id,
-                    },
+                await acquire_inventory_lock(
+                    session, context.organization_id, branch_id, variant_id
                 )
                 balances = (
                     await session.execute(

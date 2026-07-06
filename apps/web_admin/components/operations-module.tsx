@@ -6,6 +6,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { useI18n, type TranslationKey } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase-browser";
+import { normalizeNumericInput, parseLocalizedNumber } from "@/lib/numbers";
+import { readOrganizationId, resolveOrganizationId } from "@/lib/organization";
 import {
   ProductImageManager,
   ProductImagePicker,
@@ -119,17 +121,8 @@ const config: Record<
     ],
   },
 };
-function orgCookie() {
-  return (
-    document.cookie
-      .split("; ")
-      .find((p) => p.startsWith("organization_id="))
-      ?.split("=")[1] ?? ""
-  );
-}
 function num(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return parseLocalizedNumber(v);
 }
 function display(
   key: string,
@@ -204,18 +197,12 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
         return;
       }
       setToken(data.session.access_token);
-      const orgs = await apiRequest<Array<{ id: string }>>(
-        "/organizations",
-        data.session.access_token,
-      );
-      if (!orgs.length) {
+      const id = await resolveOrganizationId(data.session.access_token);
+      if (!id) {
         location.assign("/onboarding");
         return;
       }
-      const existing = orgCookie();
-      const id = orgs.some((o) => o.id === existing) ? existing : orgs[0].id;
       setOrg(id);
-      document.cookie = `organization_id=${id}; Path=/; SameSite=Lax`;
       const current = await apiRequest<{ permissions: string[] }>(
         "/organizations/current",
         data.session.access_token,
@@ -314,7 +301,9 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       };
     }
     try {
-      await apiRequest(endpoint, token, org, {
+      const organizationId = org || readOrganizationId();
+      if (!organizationId) throw new Error(t("loadError"));
+      await apiRequest(endpoint, token, organizationId, {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -382,7 +371,7 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       {open && kind === "products" ? (
         <ProductForm
           token={token}
-          org={org}
+          org={org || readOrganizationId()}
           metadata={metadata}
           onClose={() => setOpen(false)}
           onSaved={load}
@@ -605,10 +594,10 @@ function Field({
       </span>
       <input
         name={name}
-        type={type}
+        type={type === "number" ? "text" : type}
+        inputMode={type === "number" ? "decimal" : undefined}
         required={required}
         placeholder={placeholder}
-        step={type === "number" ? "0.01" : undefined}
       />
     </label>
   );
@@ -633,13 +622,24 @@ function ProductForm({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [selected, setSelected] = useState<Suggestion | null>(null);
-  const [buy, setBuy] = useState(0);
-  const [sell, setSell] = useState(0);
+  const [category, setCategory] = useState(
+    () => metadata.categories[0]?.name_bn || metadata.categories[0]?.name || "",
+  );
+  const [unit, setUnit] = useState(
+    () => metadata.units[0]?.symbol || metadata.units[0]?.name || "",
+  );
+  const [buy, setBuy] = useState("");
+  const [sell, setSell] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!token || !org || name.trim().length < 1 || selected?.bn_name === name) {
+    if (
+      !token ||
+      !org ||
+      name.trim().length < 1 ||
+      selected?.bn_name === name
+    ) {
       setSuggestions([]);
       return;
     }
@@ -665,49 +665,74 @@ function ProductForm({
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
-  const profit = sell - buy,
-    margin = sell > 0 ? (profit / sell) * 100 : 0,
-    markup = buy > 0 ? (profit / buy) * 100 : 0;
+  const buyValue = num(buy);
+  const sellValue = num(sell);
+  const profit = sellValue - buyValue,
+    margin = sellValue > 0 ? (profit / sellValue) * 100 : 0,
+    markup = buyValue > 0 ? (profit / buyValue) * 100 : 0;
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     const f = new FormData(e.currentTarget);
+    const categoryMatch = metadata.categories.find((item) =>
+      [item.name, item.name_bn]
+        .filter(Boolean)
+        .some(
+          (value) =>
+            value?.trim().toLowerCase() === category.trim().toLowerCase(),
+        ),
+    );
+    const unitMatch = metadata.units.find((item) =>
+      [item.name, item.symbol].some(
+        (value) => value.trim().toLowerCase() === unit.trim().toLowerCase(),
+      ),
+    );
     let uploadedPath = "";
     try {
-      if (imageFile) uploadedPath = await uploadProductImage(imageFile, org);
-      const result = await apiRequest<{ id: string }>("/products", token, org, {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          name_bn: name,
-          master_item_id: selected?.source === "master" ? selected.id : null,
-          category_id: f.get("categoryId") || null,
-          base_unit_id: f.get("unitId") || null,
-          sku: f.get("sku") || null,
-          barcode: f.get("barcode") || null,
-          brand_name: f.get("brand") || selected?.brand_name || null,
-          supplier_name: f.get("supplier") || null,
-          description: f.get("description") || null,
-          variant_name: f.get("variant") || "Default",
-          pack_size: f.get("packSize") || selected?.common_pack_size || null,
-          purchase_price: buy,
-          retail_price: sell,
-          wholesale_price: num(f.get("wholesale")),
-          mrp: f.get("mrp") ? num(f.get("mrp")) : null,
-          opening_stock: num(f.get("openingStock")),
-          reorder_level: num(f.get("reorder")),
-          vat_rate: num(f.get("vat")),
-          discount_allowed: f.get("discountAllowed") === "on",
-          expiry_tracking: f.get("expiryTracking") === "on",
-          expiry_date: f.get("expiryDate") || null,
-          batch_number: f.get("batch") || null,
-          serial_number: f.get("serial") || null,
-          rack_location: f.get("rack") || null,
-          notes: f.get("notes") || null,
-          image_path: uploadedPath || null,
-        }),
-      });
+      const organizationId = org || readOrganizationId();
+      if (!organizationId) throw new Error(t("loadError"));
+      if (imageFile)
+        uploadedPath = await uploadProductImage(imageFile, organizationId);
+      const result = await apiRequest<{ id: string }>(
+        "/products",
+        token,
+        organizationId,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            name_bn: name,
+            master_item_id: selected?.source === "master" ? selected.id : null,
+            category_id: categoryMatch?.id ?? null,
+            category_name: categoryMatch ? null : category.trim(),
+            base_unit_id: unitMatch?.id ?? null,
+            unit_name: unitMatch ? null : unit.trim(),
+            sku: f.get("sku") || null,
+            barcode: f.get("barcode") || null,
+            brand_name: f.get("brand") || selected?.brand_name || null,
+            supplier_name: f.get("supplier") || null,
+            description: f.get("description") || null,
+            variant_name: f.get("variant") || "Default",
+            pack_size: f.get("packSize") || selected?.common_pack_size || null,
+            purchase_price: buyValue,
+            retail_price: sellValue,
+            wholesale_price: num(f.get("wholesale")),
+            mrp: f.get("mrp") ? num(f.get("mrp")) : null,
+            opening_stock: num(f.get("openingStock")),
+            reorder_level: num(f.get("reorder")),
+            vat_rate: num(f.get("vat")),
+            discount_allowed: f.get("discountAllowed") === "on",
+            expiry_tracking: f.get("expiryTracking") === "on",
+            expiry_date: f.get("expiryDate") || null,
+            batch_number: f.get("batch") || null,
+            serial_number: f.get("serial") || null,
+            rack_location: f.get("rack") || null,
+            notes: f.get("notes") || null,
+            image_path: uploadedPath || null,
+          }),
+        },
+      );
       if (
         (e.nativeEvent as SubmitEvent).submitter?.getAttribute("data-pos") ===
         "1"
@@ -723,6 +748,12 @@ function ProductForm({
         setName("");
         setSelected(null);
         setImageFile(null);
+        setCategory(
+          metadata.categories[0]?.name_bn || metadata.categories[0]?.name || "",
+        );
+        setUnit(metadata.units[0]?.symbol || metadata.units[0]?.name || "");
+        setBuy("");
+        setSell("");
         (e.currentTarget as HTMLFormElement).reset();
         await onSaved();
         return;
@@ -778,6 +809,8 @@ function ProductForm({
                       onClick={() => {
                         setSelected(s);
                         setName(s.bn_name);
+                        setCategory(s.category_bn_name || "General");
+                        setUnit(s.common_unit);
                         setSuggestions([]);
                       }}
                     >
@@ -796,33 +829,37 @@ function ProductForm({
             </label>
             <label className="field">
               <span>{t("category")} *</span>
-              <select name="categoryId" required={!selected}>
-                {selected ? (
-                  <option value="">{selected.category_bn_name}</option>
-                ) : (
-                  <option value="">{t("select")}</option>
-                )}
+              <input
+                name="categoryName"
+                list="product-category-options"
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                required
+                autoComplete="off"
+              />
+              <datalist id="product-category-options">
                 {metadata.categories.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name_bn || x.name}
-                  </option>
+                  <option key={x.id} value={x.name_bn || x.name} />
                 ))}
-              </select>
+              </datalist>
             </label>
             <label className="field">
               <span>{t("unit")} *</span>
-              <select name="unitId" required={!selected}>
-                {selected ? (
-                  <option value="">{selected.common_unit}</option>
-                ) : (
-                  <option value="">{t("select")}</option>
-                )}
+              <input
+                name="unitName"
+                list="product-unit-options"
+                value={unit}
+                onChange={(event) => setUnit(event.target.value)}
+                required
+                autoComplete="off"
+              />
+              <datalist id="product-unit-options">
                 {metadata.units.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.symbol} · {x.name}
+                  <option key={x.id} value={x.symbol}>
+                    {x.name}
                   </option>
                 ))}
-              </select>
+              </datalist>
             </label>
           </div>
         </div>
@@ -831,11 +868,10 @@ function ProductForm({
             <span>{t("buyingPrice")} *</span>
             <input
               aria-label={t("buyingPrice")}
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={buy}
-              onChange={(e) => setBuy(num(e.target.value))}
+              onChange={(e) => setBuy(normalizeNumericInput(e.target.value))}
               required
             />
           </label>
@@ -843,11 +879,10 @@ function ProductForm({
             <span>{t("sellingPrice")} *</span>
             <input
               aria-label={t("sellingPrice")}
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={sell}
-              onChange={(e) => setSell(num(e.target.value))}
+              onChange={(e) => setSell(normalizeNumericInput(e.target.value))}
               required
             />
           </label>
@@ -855,7 +890,8 @@ function ProductForm({
             <span>{t("profit")}</span>
             <strong>{money.format(profit)}</strong>
             <small>
-              {t("profitMargin")} {margin.toFixed(1)}% · {t("markup")} {markup.toFixed(1)}%
+              {t("profitMargin")} {margin.toFixed(1)}% · {t("markup")}{" "}
+              {markup.toFixed(1)}%
             </small>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { createClient } from "@/lib/supabase-browser";
 import { useI18n } from "@/lib/i18n";
+import { normalizeNumericInput, parseLocalizedNumber } from "@/lib/numbers";
 
 type Product = {
   variant_id: string;
@@ -18,9 +19,9 @@ type Product = {
 };
 type Customer = { id: string; name: string; phone?: string };
 type CartLine = Product & {
-  quantity: number;
-  unitPrice: number;
-  discount: number;
+  quantity: string;
+  unitPrice: string;
+  discount: string;
 };
 function orgCookie() {
   return (
@@ -48,7 +49,7 @@ export function PosSale() {
   const [query, setQuery] = useState("");
   const [customer, setCustomer] = useState("");
   const [method, setMethod] = useState("cash");
-  const [paid, setPaid] = useState(0);
+  const [paid, setPaid] = useState("");
   const [paidTouched, setPaidTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,13 +118,29 @@ export function PosSale() {
       )
       .slice(0, 12);
   }, [products, query]);
+  function firstMatch(value: string) {
+    const normalized = value.toLowerCase().trim();
+    if (!normalized) return products[0];
+    return products.find((product) =>
+      [product.name, product.name_bn, product.sku, product.barcode].some(
+        (field) =>
+          String(field ?? "")
+            .toLowerCase()
+            .includes(normalized),
+      ),
+    );
+  }
   const total = cart.reduce(
-    (s, l) => s + l.quantity * l.unitPrice - l.discount,
+    (s, l) =>
+      s +
+      parseLocalizedNumber(l.quantity) * parseLocalizedNumber(l.unitPrice) -
+      parseLocalizedNumber(l.discount),
     0,
   );
-  const due = Math.max(0, total - paid);
+  const paidValue = parseLocalizedNumber(paid);
+  const due = Math.max(0, total - paidValue);
   useEffect(() => {
-    if (!paidTouched) setPaid(total);
+    if (!paidTouched) setPaid(String(total));
   }, [paidTouched, total]);
   function add(p: Product) {
     setCart((lines) => {
@@ -131,16 +148,16 @@ export function PosSale() {
       return exists
         ? lines.map((l) =>
             l.variant_id === p.variant_id
-              ? { ...l, quantity: l.quantity + 1 }
+              ? { ...l, quantity: String(parseLocalizedNumber(l.quantity) + 1) }
               : l,
           )
         : [
             ...lines,
             {
               ...p,
-              quantity: 1,
-              unitPrice: Number(p.retail_price),
-              discount: 0,
+              quantity: "1",
+              unitPrice: String(Number(p.retail_price)),
+              discount: "0",
             },
           ];
     });
@@ -158,11 +175,11 @@ export function PosSale() {
           customer_id: customer || null,
           items: cart.map((l) => ({
             product_variant_id: l.variant_id,
-            quantity: l.quantity,
-            unit_price: l.unitPrice,
-            discount: l.discount,
+            quantity: parseLocalizedNumber(l.quantity),
+            unit_price: parseLocalizedNumber(l.unitPrice),
+            discount: parseLocalizedNumber(l.discount),
           })),
-          paid_amount: paid,
+          paid_amount: paidValue,
           payment_method: method,
         }),
       });
@@ -171,7 +188,7 @@ export function PosSale() {
         setCart([]);
         setCustomer("");
         setPaidTouched(false);
-        setPaid(0);
+        setPaid("");
         input.current?.focus();
       } else
         router.push(
@@ -217,9 +234,13 @@ export function PosSale() {
             <input
               ref={input}
               value={query}
+              disabled={!accessChecked || !org}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && matches[0]) add(matches[0]);
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                const product = firstMatch(e.currentTarget.value);
+                if (product) add(product);
               }}
               placeholder={t("productSearchPlaceholder")}
             />
@@ -257,15 +278,17 @@ export function PosSale() {
                   </div>
                   <input
                     aria-label={t("quantity")}
-                    type="number"
-                    min="0.0001"
-                    step="0.0001"
+                    type="text"
+                    inputMode="decimal"
                     value={line.quantity}
                     onChange={(e) =>
                       setCart((c) =>
                         c.map((x) =>
                           x.variant_id === line.variant_id
-                            ? { ...x, quantity: Number(e.target.value) }
+                            ? {
+                                ...x,
+                                quantity: normalizeNumericInput(e.target.value),
+                              }
                             : x,
                         ),
                       )
@@ -273,16 +296,20 @@ export function PosSale() {
                   />
                   <input
                     aria-label={t("sellingPrice")}
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={line.unitPrice}
                     disabled={!permissions.includes("sales.price_override")}
                     onChange={(e) =>
                       setCart((c) =>
                         c.map((x) =>
                           x.variant_id === line.variant_id
-                            ? { ...x, unitPrice: Number(e.target.value) }
+                            ? {
+                                ...x,
+                                unitPrice: normalizeNumericInput(
+                                  e.target.value,
+                                ),
+                              }
                             : x,
                         ),
                       )
@@ -290,16 +317,20 @@ export function PosSale() {
                   />
                   <input
                     aria-label={t("discount")}
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={line.discount}
                     disabled={!permissions.includes("sales.discount")}
                     onChange={(event) =>
                       setCart((current) =>
                         current.map((item) =>
                           item.variant_id === line.variant_id
-                            ? { ...item, discount: Number(event.target.value) }
+                            ? {
+                                ...item,
+                                discount: normalizeNumericInput(
+                                  event.target.value,
+                                ),
+                              }
                             : item,
                         ),
                       )
@@ -307,7 +338,9 @@ export function PosSale() {
                   />
                   <strong>
                     {money.format(
-                      line.quantity * line.unitPrice - line.discount,
+                      parseLocalizedNumber(line.quantity) *
+                        parseLocalizedNumber(line.unitPrice) -
+                        parseLocalizedNumber(line.discount),
                     )}
                   </strong>
                   <button
@@ -359,14 +392,12 @@ export function PosSale() {
             <label>
               <span>{t("paidAmount")}</span>
               <input
-                type="number"
-                min="0"
-                max={total}
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={paid}
                 onChange={(e) => {
                   setPaidTouched(true);
-                  setPaid(Number(e.target.value));
+                  setPaid(normalizeNumericInput(e.target.value));
                 }}
               />
             </label>
