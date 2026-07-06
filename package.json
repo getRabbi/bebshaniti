@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/web_admin",
-    "apps/landing"
+    "apps/landing",
+    "apps/platform_console"
   ],
   "overrides": {
     "next": {
@@ -16,7 +17,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:admin": "npm run dev --workspace @bd-business-os/web-admin",
-    "dev:landing": "npm run dev --workspace @bd-business-os/landing"
+    "dev:landing": "npm run dev --workspace @bd-business-os/landing",
+    "dev:platform": "npm run dev --workspace @bd-business-os/platform-console"
   },
   "engines": {
     "node": ">=22"

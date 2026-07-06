@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase-browser";
 export default function LoginPage() {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -46,18 +46,6 @@ export default function LoginPage() {
       </section>
       <section className="auth-form-side">
         <form className="auth-card" onSubmit={submit}>
-          <label className="language-switch auth-language">
-            {t("language")}
-            <select
-              value={locale}
-              onChange={(event) =>
-                setLocale(event.target.value as "bn-BD" | "en")
-              }
-            >
-              <option value="bn-BD">{t("bangla")}</option>
-              <option value="en">{t("english")}</option>
-            </select>
-          </label>
           <p className="page-eyebrow">{t("adminPortal")}</p>
           <h1>{t("login")}</h1>
           <label className="field">

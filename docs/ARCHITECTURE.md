@@ -7,6 +7,7 @@ The root architecture source is `bangladesh_retail_wholesale_production_supabase
 ```text
 yourdomain.com        -> Vercel project: apps/landing
 app.yourdomain.com    -> Vercel project: apps/web_admin
+private-ops-host      -> Vercel project: apps/platform_console
 api.yourdomain.com    -> container host: apps/api
 Supabase              -> Auth + PostgreSQL + RLS + private Storage
 Flutter POS           -> Supabase Auth + FastAPI; local database arrives in Phase 6
@@ -18,7 +19,8 @@ Clients authenticate through Supabase Auth. They send the access token to FastAP
 ## Trust boundaries
 
 - Landing is public and contains no privileged credentials.
-- Admin and POS use only Supabase publishable/anon keys.
+- Merchant admin and POS use only Supabase publishable/anon keys.
+- The allowlisted platform console uses the service-role key only in server-side code and audits console access.
 - FastAPI and future workers may hold the service-role key and database URL.
 - All API business queries must include `organization_id`; branch queries also include `branch_id`.
 - Database composite foreign keys prevent a row from referencing an entity in another organization.
@@ -30,4 +32,4 @@ The authenticated web release includes organization onboarding, catalog and inve
 
 ## Deployment independence
 
-Admin and landing are separate Next.js projects so they can have separate Vercel environment scopes, domains, logs and rollbacks. FastAPI remains a container because future sync, Redis and worker operations are unsuitable for a purely serverless lifecycle.
+Merchant app, platform console and landing are separate Next.js projects so they have independent Vercel environment scopes, domains, logs and rollbacks. The platform console is read-only, requires a server-side email allowlist and keeps the Supabase service-role key out of client bundles. Its hostname is not a security boundary. FastAPI remains a container because future sync, Redis and worker operations are unsuitable for a purely serverless lifecycle.

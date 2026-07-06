@@ -32,6 +32,8 @@ pnpm-debug.log*
 .packages
 build/
 coverage/
+test-results/
+playwright-report/
 android/local.properties
 ios/Flutter/ephemeral/
 

@@ -5,8 +5,8 @@ import "./globals.css";
 import { I18nProvider } from "@/lib/i18n";
 
 export const metadata: Metadata = {
-  title: { default: "Business OS Admin", template: "%s | Business OS" },
-  description: "Secure owner and operations dashboard for Bangladesh Business OS",
+  title: { default: "ব্যবসানীতি অ্যাপ", template: "%s | ব্যবসানীতি" },
+  description: "ব্যবসায়ীদের বিক্রয়, স্টক, বাকি ও রিপোর্ট পরিচালনার নিরাপদ অ্যাপ",
   robots: { index: false, follow: false }
 };
 
