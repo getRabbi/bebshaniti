@@ -181,7 +181,7 @@ const messages = {
     loginTitle: "ব্যবসার নিয়ন্ত্রণ, আপনার হাতে।",
     loginIntro:
       "বিক্রয়, স্টক, কাস্টমার ও বাকি—এক জায়গায় নিরাপদে পরিচালনা করুন।",
-    adminPortal: "অ্যাডমিন পোর্টাল",
+    adminPortal: "ব্যবসা অ্যাপ",
     email: "ইমেইল",
     password: "পাসওয়ার্ড",
     loggingIn: "লগইন হচ্ছে…",
@@ -472,7 +472,7 @@ const messages = {
     loginTitle: "Your business, under control.",
     loginIntro:
       "Manage sales, inventory, customers and dues securely in one place.",
-    adminPortal: "Admin portal",
+    adminPortal: "Business app",
     email: "Email",
     password: "Password",
     loggingIn: "Signing in…",

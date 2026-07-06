@@ -1,180 +1,50 @@
-const features = [
-  {
-    index: "01",
-    title: "Fast counter sales",
-    copy: "Retail and wholesale checkout, flexible payments, due sales and clear cash memos from one workflow."
-  },
-  {
-    index: "02",
-    title: "Stock you can trust",
-    copy: "Track every receive, sale, transfer and adjustment across shops and warehouses with an audit trail."
-  },
-  {
-    index: "03",
-    title: "Due / baki control",
-    copy: "Know who owes what, record collections and keep customer statements understandable for everyone."
-  },
-  {
-    index: "04",
-    title: "Purchasing and suppliers",
-    copy: "Follow purchasing, receiving, supplier balances and payments without scattered notebooks."
-  },
-  {
-    index: "05",
-    title: "Owner oversight",
-    copy: "See branch activity, staff access, cash movement and operational reports wherever you are."
-  },
-  {
-    index: "06",
-    title: "Ready for weak internet",
-    copy: "The platform is designed around Bangladesh's real connectivity and multi-device operating conditions."
-  }
-] as const;
+"use client";
 
-const fit = [
-  "Retail shops and showrooms",
-  "Wholesale and distribution",
-  "Multi-branch businesses",
-  "Warehouses and stock points"
-] as const;
+import { useLandingI18n } from "@/lib/i18n";
+
+const content = {
+  bn: {
+    status: "বাংলাদেশের ব্যবসার জন্য তৈরি", title: "ব্যবসার প্রতিটি হিসাব থাকুক আপনার নিয়ন্ত্রণে।", intro: "বিক্রয়, স্টক, বাকি, ক্রয় এবং মালিকের রিপোর্ট—খুচরা ও পাইকারি ব্যবসার জন্য এক নিরাপদ প্ল্যাটফর্মে।", create: "ফ্রি অ্যাকাউন্ট খুলুন", explore: "সুবিধাগুলো দেখুন",
+    trust: ["প্রতিটি ব্যবসার তথ্য আলাদা", "গুরুত্বপূর্ণ কাজের অডিট", "বাংলাদেশের জন্য উপযোগী"], preview: ["আজকের বিক্রয়", "স্টক সতর্কতা", "বাকি আদায়"], fitTitle: "যাদের জন্য", fit: ["খুচরা দোকান ও শোরুম", "পাইকারি ও ডিস্ট্রিবিউশন", "একাধিক শাখার ব্যবসা", "গুদাম ও স্টক পয়েন্ট"],
+    sectionEyebrow: "একটি সংযুক্ত প্ল্যাটফর্ম", sectionTitle: "ব্যবসার দৈনন্দিন কাজ এক জায়গা থেকে পরিচালনা করুন।", sectionIntro: "খাতা, বিচ্ছিন্ন অ্যাপ এবং অনুমাননির্ভর হিসাবের বদলে আপনার ব্যবসার বাস্তব কাজ অনুযায়ী তৈরি workflow ব্যবহার করুন।",
+    features: [
+      ["দ্রুত বিক্রয় ও ক্যাশ মেমো", "খুচরা বা পাইকারি বিক্রয়, বিভিন্ন পেমেন্ট, বাকি বিক্রয় এবং পরিষ্কার ক্যাশ মেমো—একই কর্মপ্রবাহে।"],
+      ["নির্ভরযোগ্য স্টক হিসাব", "পণ্য গ্রহণ, বিক্রয়, স্থানান্তর ও সমন্বয়ের পূর্ণ ইতিহাসসহ সব শাখা ও গুদামের স্টক দেখুন।"],
+      ["বাকি ও পাওনা নিয়ন্ত্রণ", "কে কত টাকা দেবে, কখন আদায় হয়েছে এবং কাস্টমারের লেজার—সবকিছু পরিষ্কারভাবে জানুন।"],
+      ["ক্রয় ও সরবরাহকারী", "ক্রয়, পণ্য গ্রহণ, সরবরাহকারীর পাওনা ও পেমেন্ট ছড়ানো খাতা ছাড়াই পরিচালনা করুন।"],
+      ["মালিকের সারসংক্ষেপ", "শাখার কার্যক্রম, কর্মীদের প্রবেশাধিকার, নগদ প্রবাহ ও গুরুত্বপূর্ণ রিপোর্ট যেকোনো জায়গা থেকে দেখুন।"],
+      ["দুর্বল ইন্টারনেটের জন্য প্রস্তুত", "বাংলাদেশের বাস্তব সংযোগ ব্যবস্থা এবং একাধিক যন্ত্র ব্যবহারের কথা মাথায় রেখে তৈরি।"],
+    ],
+    operationsEyebrow: "বাস্তব কাজের ধারায় তৈরি", operationsTitle: "কাউন্টার থেকে মালিকের পর্দা—সব একই ব্যবস্থায়।", operationsIntro: "প্রতিটি ভূমিকা প্রয়োজনীয় কাজটুকু দেখে। প্রতিটি গুরুত্বপূর্ণ কাজ সঠিক ব্যবসা, শাখা ও ব্যক্তির সঙ্গে যুক্ত থাকে।",
+    workflow: [["ব্যবসা প্রস্তুত করুন", "শাখা, কর্মী, পণ্য এবং প্রারম্ভিক মজুত দিয়ে আপনার ব্যবসার ক্ষেত্র তৈরি করুন।"], ["নিশ্চিন্তে কাজ করুন", "বিক্রয়, পণ্য গ্রহণ, বাকি আদায় এবং দৈনন্দিন কাজ অনুমতি অনুযায়ী পরিচালনা করুন।"], ["রিপোর্ট দেখে সিদ্ধান্ত নিন", "লেজার, রিপোর্ট এবং নিরীক্ষা ইতিহাস থেকে ব্যবসার অবস্থা বুঝে দ্রুত ব্যবস্থা নিন।"]],
+    pricingEyebrow: "ব্যবসার আকার অনুযায়ী", pricingTitle: "আপনার প্রয়োজন অনুযায়ী শুরু করুন।", pricingIntro: "দোকান, যন্ত্র, পুরনো তথ্য স্থানান্তর এবং প্রয়োজনীয় সুবিধা অনুযায়ী স্থাপনা ও লাইসেন্স নির্ধারণ করা হবে।",
+    plans: [["শুরু", "একটি দোকান", "একটি শাখার জন্য বিক্রয়, স্টক ও বাকি ব্যবস্থাপনা।", ["একটি দোকান", "মূল ব্যবসায়িক সুবিধা", "দলের প্রশিক্ষণ"]], ["ব্যবসা", "বর্ধমান প্রতিষ্ঠান", "একাধিক যন্ত্র, উন্নত পরিচালনা এবং মালিকের পূর্ণ নজরদারি।", ["একাধিক যন্ত্রের প্রবেশাধিকার", "ক্রয় ও খরচ", "মালিকের রিপোর্ট"]], ["নিজস্ব", "একাধিক শাখা", "শাখা, গুদাম, পাইকারি ও জটিল কর্মপ্রবাহ অনুযায়ী ব্যবস্থা।", ["শাখা নিয়ন্ত্রণ", "পুরনো তথ্য স্থানান্তর সহায়তা", "নিজস্ব চালুর পরিকল্পনা"]]],
+    contactEyebrow: "আজই শুরু করুন", contactTitle: "কয়েক মিনিটে আপনার ব্যবসার অ্যাকাউন্ট খুলুন।", contactText: "মালিকের অ্যাকাউন্ট তৈরি করে ব্যবসা ও প্রধান শাখার তথ্য দিন। আপনার আলাদা নিরাপদ ব্যবসার ক্ষেত্র সঙ্গে সঙ্গে প্রস্তুত হবে।", contactAction: "ব্যবসার অ্যাকাউন্ট খুলুন", haveAccount: "আগে থেকেই অ্যাকাউন্ট আছে?", signIn: "লগইন করুন",
+  },
+  en: {
+    status: "Built for businesses in Bangladesh", title: "Keep every part of your business under control.", intro: "Sales, stock, due, purchasing and owner reporting in one secure platform for retail and wholesale businesses.", create: "Create a free account", explore: "Explore the features",
+    trust: ["Tenant-isolated data", "Audited critical actions", "Built for Bangladesh"], preview: ["Sales today", "Stock alerts", "Due collection"], fitTitle: "Designed for", fit: ["Retail shops and showrooms", "Wholesale and distribution", "Multi-branch businesses", "Warehouses and stock points"],
+    sectionEyebrow: "One connected platform", sectionTitle: "Run daily business operations from one place.", sectionIntro: "Replace scattered notebooks, disconnected apps and guesswork with workflows designed around how your business operates.",
+    features: [["Fast sales and cash memos", "Retail or wholesale sales, flexible payments, due sales and clear cash memos in one workflow."], ["Stock you can trust", "Track receiving, sales, transfers and adjustments across branches and warehouses with full history."], ["Due control", "Know who owes what, record collections and keep customer ledgers understandable."], ["Purchasing and suppliers", "Manage purchasing, receiving, supplier balances and payments without scattered records."], ["Owner overview", "See branch activity, staff access, cash movement and operational reports wherever you are."], ["Ready for weak internet", "Designed around Bangladesh's real connectivity and multi-device operating conditions."]],
+    operationsEyebrow: "Built around real operations", operationsTitle: "From the counter to the owner's screen.", operationsIntro: "Each role sees the tools it needs. Every important action stays tied to the right business, branch and person.", workflow: [["Set up the business", "Create the workspace with branches, staff, products and opening stock."], ["Operate with confidence", "Sell, receive stock, collect due and manage daily work through permissions."], ["Review and improve", "Use ledgers, reports and audit history to understand performance and act early."]],
+    pricingEyebrow: "Plans for every stage", pricingTitle: "Start with what your business needs.", pricingIntro: "Setup and licensing are scoped around locations, devices, data migration and the modules your team uses.", plans: [["STARTER", "Single shop", "Sales, stock and due management for one operating location.", ["One shop", "Core business modules", "Team onboarding"]], ["BUSINESS", "Growing operation", "More devices, deeper operations and owner visibility.", ["Multi-device access", "Purchasing and expenses", "Owner reporting"]], ["CUSTOM", "Multi-branch", "Configured workflows for branches, warehouses and wholesale operations.", ["Branch controls", "Data migration support", "Custom rollout plan"]]],
+    contactEyebrow: "Start today", contactTitle: "Create your business account in minutes.", contactText: "Create the owner account and add your business and main branch. Your isolated workspace will be ready immediately.", contactAction: "Create business account", haveAccount: "Already have an account?", signIn: "Sign in",
+  },
+} as const;
 
 export default function HomePage() {
-  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL;
-
-  return (
-    <main>
-      <section className="hero">
-        <div className="container hero-grid">
-          <div className="hero-copy">
-            <div className="status-pill"><span />Built for businesses in Bangladesh</div>
-            <h1>Run every part of your business with clarity.</h1>
-            <p className="lead hero-lead">
-              Sales, inventory, due/baki, purchasing and owner reporting—connected in one secure
-              operating system for retail and wholesale teams.
-            </p>
-            <div className="hero-actions">
-              <a className="button button-large" href="#contact">Plan your rollout</a>
-              <a className="text-link" href="#platform">Explore the platform <span>→</span></a>
-            </div>
-            <div className="trust-row" aria-label="Platform qualities">
-              <span>Tenant isolated</span><span>Audit ready</span><span>Bangladesh focused</span>
-            </div>
-          </div>
-
-          <div className="product-preview" aria-label="Business dashboard preview">
-            <div className="preview-topbar">
-              <div className="preview-brand"><span className="brand-mark">B</span> Business OS</div>
-              <span className="preview-chip">Live operations</span>
-            </div>
-            <div className="preview-body">
-              <aside className="preview-nav" aria-hidden="true">
-                <span className="active" /><span /><span /><span /><span />
-              </aside>
-              <div className="preview-content">
-                <div className="preview-heading"><div><small>OWNER OVERVIEW</small><strong>Good morning</strong></div><i /></div>
-                <div className="preview-metrics">
-                  <div><small>Sales today</small><strong>Synced securely</strong><em className="bar bar-wide" /></div>
-                  <div><small>Stock alerts</small><strong>Action focused</strong><em className="bar" /></div>
-                  <div><small>Due control</small><strong>Ledger backed</strong><em className="bar bar-mid" /></div>
-                </div>
-                <div className="preview-chart">
-                  <div className="chart-head"><span>Business activity</span><small>All branches</small></div>
-                  <div className="chart-lines" aria-hidden="true">
-                    <i style={{ height: "32%" }} /><i style={{ height: "51%" }} /><i style={{ height: "44%" }} />
-                    <i style={{ height: "69%" }} /><i style={{ height: "58%" }} /><i style={{ height: "81%" }} />
-                    <i style={{ height: "72%" }} /><i style={{ height: "91%" }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="fit-strip">
-        <div className="container fit-row">
-          <p>Designed for</p>
-          {fit.map((item) => <span key={item}>{item}</span>)}
-        </div>
-      </section>
-
-      <section className="section" id="platform">
-        <div className="container">
-          <div className="section-heading split-heading">
-            <div><p className="eyebrow">One connected platform</p><h2>Control the work that moves your business.</h2></div>
-            <p className="lead">Replace disconnected apps and manual records with workflows built around how shops, distributors and warehouses actually operate.</p>
-          </div>
-          <div className="feature-grid">
-            {features.map((feature) => (
-              <article className="feature-card" key={feature.title}>
-                <span className="feature-index">{feature.index}</span>
-                <h3>{feature.title}</h3>
-                <p>{feature.copy}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section dark-section" id="operations">
-        <div className="container operations-grid">
-          <div>
-            <p className="eyebrow eyebrow-light">Built around real operations</p>
-            <h2>From the counter to the owner&apos;s screen.</h2>
-            <p className="lead light-copy">Each role sees the tools it needs. Every important action stays tied to the right organization, branch and person.</p>
-          </div>
-          <div className="workflow-list">
-            <article><span>01</span><div><h3>Set up the business</h3><p>Map branches, devices, staff access, products and opening stock before go-live.</p></div></article>
-            <article><span>02</span><div><h3>Operate with confidence</h3><p>Sell, receive stock, collect due and manage daily work through permission-aware workflows.</p></div></article>
-            <article><span>03</span><div><h3>Review and improve</h3><p>Use ledgers, reports and audit history to understand performance and act early.</p></div></article>
-          </div>
-        </div>
-      </section>
-
-      <section className="section" id="pricing">
-        <div className="container">
-          <div className="section-heading centered">
-            <p className="eyebrow">A practical service model</p>
-            <h2>Start with what your business needs.</h2>
-            <p className="lead">Licensing and rollout are scoped around locations, devices, data migration and the modules your team will use.</p>
-          </div>
-          <div className="plan-grid">
-            <article className="plan-card">
-              <p className="plan-label">STARTER</p><h3>Single shop</h3>
-              <p>Core sales, stock and due/baki workflows for one operating location.</p>
-              <ul><li>One shop setup</li><li>Core business modules</li><li>Team onboarding</li></ul>
-            </article>
-            <article className="plan-card featured-plan">
-              <p className="plan-label">BUSINESS</p><h3>Growing operation</h3>
-              <p>More devices, deeper operations and owner visibility for an expanding team.</p>
-              <ul><li>Multi-device access</li><li>Purchasing and expenses</li><li>Owner reporting</li></ul>
-            </article>
-            <article className="plan-card">
-              <p className="plan-label">CUSTOM</p><h3>Multi-branch</h3>
-              <p>Configured workflows for branches, warehouses, wholesale and complex rollout needs.</p>
-              <ul><li>Branch controls</li><li>Data migration support</li><li>Custom rollout plan</li></ul>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="section contact-section" id="contact">
-        <div className="container contact-card">
-          <div>
-            <p className="eyebrow eyebrow-light">Start with a clear plan</p>
-            <h2>Tell us how your business operates.</h2>
-            <p>We&apos;ll map the right setup for your branches, devices, team and current data before activation.</p>
-          </div>
-          <div className="contact-actions">
-            {contactEmail ? (
-              <a className="button button-light button-large" href={`mailto:${contactEmail}?subject=Business%20OS%20rollout%20consultation`}>Request a consultation</a>
-            ) : (
-              <span className="button button-light button-large button-unavailable">Contact channel is being configured</span>
-            )}
-            <p>{contactEmail ? `Email ${contactEmail}` : "Set NEXT_PUBLIC_CONTACT_EMAIL before launch."}</p>
-          </div>
-        </div>
-      </section>
-    </main>
-  );
+  const { locale } = useLandingI18n();
+  const t = content[locale];
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://bebshaniti-app.vercel.app";
+  return <main>
+    <section className="hero"><div className="container hero-grid">
+      <div className="hero-copy"><div className="status-pill"><span />{t.status}</div><h1>{t.title}</h1><p className="lead hero-lead">{t.intro}</p><div className="hero-actions"><a className="button button-large" href={`${appUrl}/register`}>{t.create}</a><a className="text-link" href="#platform">{t.explore} <span>→</span></a></div><div className="trust-row">{t.trust.map((item) => <span key={item}>{item}</span>)}</div></div>
+      <div className="product-preview" aria-label="Business dashboard preview"><div className="preview-topbar"><div className="preview-brand"><span className="brand-mark">ব</span> ব্যবসানীতি</div><span className="preview-chip">{locale === "bn" ? "সচল" : "LIVE"}</span></div><div className="preview-body"><aside className="preview-nav" aria-hidden="true"><span className="active" /><span /><span /><span /><span /></aside><div className="preview-content"><div className="preview-heading"><div><small>{locale === "bn" ? "মালিকের সারসংক্ষেপ" : "OWNER OVERVIEW"}</small><strong>{locale === "bn" ? "শুভ সকাল" : "Good morning"}</strong></div><i /></div><div className="preview-metrics">{t.preview.map((item, index) => <div key={item}><small>{item}</small><strong>{locale === "bn" ? "নিরাপদে হালনাগাদ" : "Securely synced"}</strong><em className={`bar ${index === 0 ? "bar-wide" : index === 2 ? "bar-mid" : ""}`} /></div>)}</div><div className="preview-chart"><div className="chart-head"><span>{locale === "bn" ? "ব্যবসার কার্যক্রম" : "Business activity"}</span><small>{locale === "bn" ? "সব শাখা" : "All branches"}</small></div><div className="chart-lines" aria-hidden="true">{[32,51,44,69,58,81,72,91].map((height) => <i key={height} style={{height:`${height}%`}} />)}</div></div></div></div></div>
+    </div></section>
+    <section className="fit-strip"><div className="container fit-row"><p>{t.fitTitle}</p>{t.fit.map((item) => <span key={item}>{item}</span>)}</div></section>
+    <section className="section" id="platform"><div className="container"><div className="section-heading split-heading"><div><p className="eyebrow">{t.sectionEyebrow}</p><h2>{t.sectionTitle}</h2></div><p className="lead">{t.sectionIntro}</p></div><div className="feature-grid">{t.features.map((feature,index)=><article className="feature-card" key={feature[0]}><span className="feature-index">0{index+1}</span><h3>{feature[0]}</h3><p>{feature[1]}</p></article>)}</div></div></section>
+    <section className="section dark-section" id="operations"><div className="container operations-grid"><div><p className="eyebrow eyebrow-light">{t.operationsEyebrow}</p><h2>{t.operationsTitle}</h2><p className="lead light-copy">{t.operationsIntro}</p></div><div className="workflow-list">{t.workflow.map((step,index)=><article key={step[0]}><span>0{index+1}</span><div><h3>{step[0]}</h3><p>{step[1]}</p></div></article>)}</div></div></section>
+    <section className="section" id="pricing"><div className="container"><div className="section-heading centered"><p className="eyebrow">{t.pricingEyebrow}</p><h2>{t.pricingTitle}</h2><p className="lead">{t.pricingIntro}</p></div><div className="plan-grid">{t.plans.map((plan,index)=><article className={`plan-card ${index===1?"featured-plan":""}`} key={plan[1]}><p className="plan-label">{plan[0]}</p><h3>{plan[1]}</h3><p>{plan[2]}</p><ul>{plan[3].map(item=><li key={item}>{item}</li>)}</ul></article>)}</div></div></section>
+    <section className="section contact-section" id="contact"><div className="container contact-card"><div><p className="eyebrow eyebrow-light">{t.contactEyebrow}</p><h2>{t.contactTitle}</h2><p>{t.contactText}</p></div><div className="contact-actions"><a className="button button-light button-large" href={`${appUrl}/register`}>{t.contactAction}</a><p>{t.haveAccount} <a href={`${appUrl}/login`}><strong>{t.signIn}</strong></a></p></div></div></section>
+  </main>;
 }

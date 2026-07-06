@@ -1,4 +1,4 @@
-name: Admin CI
+name: Platform Console CI
 
 on:
   pull_request:
@@ -9,12 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  admin-build:
+  platform-console-build:
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://project-ref.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
-      NEXT_PUBLIC_API_BASE_URL: https://api.example.com/api/v1
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+      PLATFORM_ADMIN_EMAILS: owner@example.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +23,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run lint --workspace @bd-business-os/web-admin
-      - run: npm run typecheck --workspace @bd-business-os/web-admin
-      - run: npm run build --workspace @bd-business-os/web-admin
+      - run: npm run lint --workspace @bd-business-os/platform-console
+      - run: npm run typecheck --workspace @bd-business-os/platform-console
+      - run: npm run build --workspace @bd-business-os/platform-console

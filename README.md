@@ -8,6 +8,7 @@ This is not yet the full product roadmap or an approval for public merchant laun
 
 - `apps/api` — FastAPI business API and JWT/tenant dependencies.
 - `apps/web_admin` — authenticated Next.js admin application for `app.<domain>`.
+- `apps/platform_console` — allowlisted, server-only monitoring console for platform operators.
 - `apps/landing` — public Next.js website for the apex domain.
 - `apps/pos_flutter` — Flutter POS client with Supabase Auth and API boundaries.
 - `supabase/migrations` — canonical, ordered database/RLS/storage migrations.

@@ -1,6 +1,6 @@
 # Vercel deployment
 
-Create two Vercel projects from the same GitHub repository.
+Create three Vercel projects from the same GitHub repository.
 
 ## Admin project
 
@@ -18,13 +18,22 @@ Create two Vercel projects from the same GitHub repository.
 - Domain: `yourdomain.com` and optionally `www.yourdomain.com`
 - Variables: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_CONTACT_EMAIL`
 
+## Platform console project
+
+- Root Directory: `apps/platform_console`
+- Framework: Next.js
+- Production branch: `main`
+- Domain: a dedicated non-obvious operations hostname
+- Variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `PLATFORM_ADMIN_EMAILS`
+- Public signup is disabled. The hostname is not an authorization control; Supabase authentication and the server-side email allowlist are mandatory.
+
 Use Vercel's generated DNS instructions. For external DNS, add the exact A/CNAME records Vercel displays; values can change, so do not copy stale examples. Choose one canonical apex/`www` host and redirect the other. Vercel provisions TLS after DNS validation.
 
 ## Environment separation
 
 Configure Production, Preview and Development separately. Production points only to the production Supabase/API. Preview points to staging services and must not receive production data or service-role keys. Environment changes require a new deployment.
 
-The public Supabase anon/publishable key is safe to expose only because RLS is mandatory. Never define `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, JWT secrets or private storage signing credentials in either Vercel project.
+The public Supabase anon/publishable key is safe to expose only because RLS is mandatory. Never define `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, JWT secrets or private storage signing credentials in landing or merchant-app projects. The platform console receives only the service-role key as a server-side variable; it must never use the `NEXT_PUBLIC_` prefix.
 
 ## Deploy and verify
 
@@ -35,6 +44,8 @@ npx vercel --cwd apps/landing
 npx vercel --cwd apps/landing --prod
 npx vercel --cwd apps/web_admin
 npx vercel --cwd apps/web_admin --prod
+npx vercel --cwd apps/platform_console
+npx vercel --cwd apps/platform_console --prod
 ```
 
 After domain binding:

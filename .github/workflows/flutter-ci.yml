@@ -2,10 +2,8 @@ name: Flutter CI
 
 on:
   pull_request:
-    paths: ["apps/pos_flutter/**", ".github/workflows/flutter-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/pos_flutter/**", ".github/workflows/flutter-ci.yml"]
 
 permissions:
   contents: read
