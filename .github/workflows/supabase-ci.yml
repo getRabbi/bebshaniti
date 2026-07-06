@@ -2,10 +2,8 @@ name: Supabase Migration CI
 
 on:
   pull_request:
-    paths: ["supabase/**", ".github/workflows/supabase-ci.yml"]
   push:
     branches: [main]
-    paths: ["supabase/**", ".github/workflows/supabase-ci.yml"]
 
 permissions:
   contents: read

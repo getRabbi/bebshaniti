@@ -2,10 +2,8 @@ name: Platform Console CI
 
 on:
   pull_request:
-    paths: ["apps/platform_console/**", "package*.json", ".github/workflows/platform-console-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/platform_console/**", "package*.json", ".github/workflows/platform-console-ci.yml"]
 
 permissions:
   contents: read

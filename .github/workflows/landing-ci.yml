@@ -2,10 +2,8 @@ name: Landing CI
 
 on:
   pull_request:
-    paths: ["apps/landing/**", "package*.json", ".github/workflows/landing-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/landing/**", "package*.json", ".github/workflows/landing-ci.yml"]
 
 permissions:
   contents: read

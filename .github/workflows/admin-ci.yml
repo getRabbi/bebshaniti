@@ -2,10 +2,8 @@ name: Admin CI
 
 on:
   pull_request:
-    paths: ["apps/web_admin/**", "package*.json", ".github/workflows/admin-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/web_admin/**", "package*.json", ".github/workflows/admin-ci.yml"]
 
 permissions:
   contents: read
