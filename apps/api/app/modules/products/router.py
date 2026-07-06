@@ -226,6 +226,45 @@ async def create_product(
                         {"org": context.organization_id, "name": payload.brand_name},
                     )
                 ).scalar_one()
+            if category_id is None and payload.category_name and payload.category_name.strip():
+                category_name = payload.category_name.strip()
+                category_id = (
+                    await session.execute(
+                        text("""
+                        insert into public.categories(organization_id,name,name_bn)
+                        values (:org,:name,:name_bn)
+                        on conflict (organization_id,name) do update set is_active=true
+                        returning id
+                    """),
+                        {
+                            "org": context.organization_id,
+                            "name": category_name,
+                            "name_bn": category_name,
+                        },
+                    )
+                ).scalar_one()
+            if base_unit_id is None and payload.unit_name and payload.unit_name.strip():
+                unit_name = payload.unit_name.strip()
+                unit_symbol = unit_name.lower()
+                precision = (
+                    3 if unit_symbol in {"kg", "কেজি", "litre", "liter", "ltr", "লিটার"} else 0
+                )
+                base_unit_id = (
+                    await session.execute(
+                        text("""
+                        insert into public.units(organization_id,name,symbol,precision)
+                        values (:org,:name,:symbol,:precision)
+                        on conflict (organization_id,symbol) do update set is_active=true,name=excluded.name
+                        returning id
+                    """),
+                        {
+                            "org": context.organization_id,
+                            "name": unit_name,
+                            "symbol": unit_symbol,
+                            "precision": precision,
+                        },
+                    )
+                ).scalar_one()
             supplier_id = payload.supplier_id
             if supplier_id is None and payload.supplier_name:
                 supplier_id = (

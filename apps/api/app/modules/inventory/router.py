@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.locking import acquire_inventory_lock
 from app.core.permissions import require_permission
 from app.core.security import CurrentUser, get_current_user
 from app.core.tenant import OrganizationContext, get_organization_context, resolve_branch_id
@@ -123,20 +124,11 @@ async def create_adjustment(
                 isinstance(settings, dict) and settings.get("allow_negative_stock") is True
             )
             if not allow_negative_stock:
-                await session.execute(
-                    text(
-                        """
-                        select pg_advisory_xact_lock(hashtextextended(
-                          cast(:organization_id as text) || ':' ||
-                          cast(:branch_id as text) || ':' || cast(:variant_id as text), 0
-                        ))
-                        """
-                    ),
-                    {
-                        "organization_id": context.organization_id,
-                        "branch_id": branch_id,
-                        "variant_id": payload.product_variant_id,
-                    },
+                await acquire_inventory_lock(
+                    session,
+                    context.organization_id,
+                    branch_id,
+                    payload.product_variant_id,
                 )
                 current_quantity = (
                     await session.execute(

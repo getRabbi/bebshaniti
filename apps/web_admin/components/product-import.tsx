@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { apiRequest } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { resolveOrganizationId } from "@/lib/organization";
 import { createClient } from "@/lib/supabase-browser";
 
 type PreviewRow = {
@@ -35,15 +36,6 @@ type Result = {
   failed_rows: number;
   errors: Array<{ row_number: number; errors: string[] }>;
 };
-function org() {
-  return (
-    document.cookie
-      .split("; ")
-      .find((part) => part.startsWith("organization_id="))
-      ?.split("=")[1] ?? ""
-  );
-}
-
 export function ProductImport() {
   const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
@@ -87,8 +79,14 @@ export function ProductImport() {
         location.assign("/login");
         return;
       }
-      setToken(data.session.access_token);
-      setOrganizationId(org());
+      const accessToken = data.session.access_token;
+      const resolved = await resolveOrganizationId(accessToken);
+      if (!resolved) {
+        location.assign("/onboarding");
+        return;
+      }
+      setToken(accessToken);
+      setOrganizationId(resolved);
     })();
   }, []);
   async function previewFile() {
@@ -183,7 +181,7 @@ export function ProductImport() {
           <button
             type="button"
             className="button"
-            disabled={!file || loading}
+            disabled={!file || !organizationId || loading}
             onClick={() => void previewFile()}
           >
             {loading ? t("loading") : t("preview")}

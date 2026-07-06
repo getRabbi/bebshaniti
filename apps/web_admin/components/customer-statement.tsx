@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiRequest } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { resolveOrganizationId } from "@/lib/organization";
 import { createClient } from "@/lib/supabase-browser";
 
 type Statement = {
@@ -50,15 +51,6 @@ type Statement = {
     paid_at: string;
   }>;
 };
-function org() {
-  return (
-    document.cookie
-      .split("; ")
-      .find((part) => part.startsWith("organization_id="))
-      ?.split("=")[1] ?? ""
-  );
-}
-
 export function CustomerStatement({ customerId }: { customerId: string }) {
   const { t, locale } = useI18n();
   const money = new Intl.NumberFormat(locale, {
@@ -79,6 +71,13 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
         location.assign("/login");
         return;
       }
+      const organizationId = await resolveOrganizationId(
+        session.session.access_token,
+      );
+      if (!organizationId) {
+        location.assign("/onboarding");
+        return;
+      }
       const query = new URLSearchParams();
       if (dateFrom) query.set("date_from", dateFrom);
       if (dateTo) query.set("date_to", dateTo);
@@ -86,7 +85,7 @@ export function CustomerStatement({ customerId }: { customerId: string }) {
         await apiRequest<Statement>(
           `/customers/${customerId}/statement?${query}`,
           session.session.access_token,
-          org(),
+          organizationId,
         ),
       );
     } catch (caught) {
