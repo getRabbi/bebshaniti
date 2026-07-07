@@ -1,13 +1,19 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  PosCustomerSelector,
+  type PosCustomer,
+} from "@/components/pos-customer-selector";
 import { apiRequest } from "@/lib/api";
 import { createClient } from "@/lib/supabase-browser";
 import { useI18n } from "@/lib/i18n";
 import { normalizeNumericInput, parseLocalizedNumber } from "@/lib/numbers";
 
 type Product = {
+  id: string;
   variant_id: string;
   name: string;
   name_bn?: string;
@@ -17,7 +23,7 @@ type Product = {
   wholesale_price: number;
   stock_quantity: number;
 };
-type Customer = { id: string; name: string; phone?: string };
+type Customer = PosCustomer;
 type CartLine = Product & {
   quantity: string;
   unitPrice: string;
@@ -40,7 +46,9 @@ export function PosSale() {
     maximumFractionDigits: 2,
   });
   const router = useRouter();
+  const searchParams = useSearchParams();
   const input = useRef<HTMLInputElement>(null);
+  const preselectedProduct = useRef("");
   const [token, setToken] = useState("");
   const [org, setOrg] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -53,9 +61,17 @@ export function PosSale() {
   const [paidTouched, setPaidTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [accessChecked, setAccessChecked] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [memoFailure, setMemoFailure] = useState<{
+    saleId: string;
+    memoNo?: string;
+  } | null>(null);
   const load = useCallback(async () => {
+    setLoadFailed(false);
+    setError(null);
     try {
       const { data } = await createClient().auth.getSession();
       if (!data.session) {
@@ -96,6 +112,7 @@ export function PosSale() {
       setCustomers(c);
       setPermissions(context.permissions);
     } catch (e) {
+      setLoadFailed(true);
       setError(e instanceof Error ? e.message : t("loadError"));
     } finally {
       setAccessChecked(true);
@@ -130,19 +147,37 @@ export function PosSale() {
       ),
     );
   }
-  const total = cart.reduce(
-    (s, l) =>
-      s +
-      parseLocalizedNumber(l.quantity) * parseLocalizedNumber(l.unitPrice) -
-      parseLocalizedNumber(l.discount),
-    0,
+  const total = useMemo(
+    () =>
+      cart.reduce(
+        (sum, line) =>
+          sum +
+          parseLocalizedNumber(line.quantity) *
+            parseLocalizedNumber(line.unitPrice) -
+          parseLocalizedNumber(line.discount),
+        0,
+      ),
+    [cart],
   );
   const paidValue = parseLocalizedNumber(paid);
   const due = Math.max(0, total - paidValue);
+  const paymentValid =
+    paid.trim() !== "" &&
+    Number.isFinite(paidValue) &&
+    paidValue >= 0 &&
+    paidValue <= total;
+  const customerRequired = total > 0 && due > 0;
+  const blockingReason = !cart.length
+    ? t("cartEmptyError")
+    : !paymentValid
+      ? t("invalidPaymentError")
+      : customerRequired && !customer
+        ? t("dueCustomerWarning")
+        : "";
   useEffect(() => {
     if (!paidTouched) setPaid(String(total));
   }, [paidTouched, total]);
-  function add(p: Product) {
+  const add = useCallback((p: Product) => {
     setCart((lines) => {
       const exists = lines.find((l) => l.variant_id === p.variant_id);
       return exists
@@ -163,39 +198,73 @@ export function PosSale() {
     });
     setQuery("");
     input.current?.focus();
-  }
+  }, []);
+  useEffect(() => {
+    const requestedId = searchParams.get("product") ?? "";
+    if (!requestedId || preselectedProduct.current === requestedId) return;
+    const product = products.find((item) => item.id === requestedId);
+    if (!product) return;
+    preselectedProduct.current = requestedId;
+    add(product);
+  }, [add, products, searchParams]);
   async function complete(action: "memo" | "print" | "new") {
-    if (!cart.length) return;
+    if (blockingReason) {
+      setError(blockingReason);
+      return;
+    }
     setSaving(true);
+    setLoadFailed(false);
     setError(null);
+    setNotice("");
+    setMemoFailure(null);
     try {
-      const sale = await apiRequest<{ id: string }>("/sales", token, org, {
-        method: "POST",
-        body: JSON.stringify({
-          customer_id: customer || null,
-          items: cart.map((l) => ({
-            product_variant_id: l.variant_id,
-            quantity: parseLocalizedNumber(l.quantity),
-            unit_price: parseLocalizedNumber(l.unitPrice),
-            discount: parseLocalizedNumber(l.discount),
-          })),
-          paid_amount: paidValue,
-          payment_method: method,
-        }),
-      });
+      const sale = await apiRequest<{ id: string; memo_no?: string }>(
+        "/sales",
+        token,
+        org,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            customer_id: customer || null,
+            items: cart.map((l) => ({
+              product_variant_id: l.variant_id,
+              quantity: parseLocalizedNumber(l.quantity),
+              unit_price: parseLocalizedNumber(l.unitPrice),
+              discount: parseLocalizedNumber(l.discount),
+            })),
+            paid_amount: paidValue,
+            payment_method: method,
+          }),
+        },
+      );
       localStorage.setItem("last-sale-id", sale.id);
       if (action === "new") {
         setCart([]);
         setCustomer("");
         setPaidTouched(false);
         setPaid("");
-        input.current?.focus();
-      } else
-        router.push(
-          `/sales/${sale.id}/${action === "print" ? "print" : "memo"}`,
+        setNotice(
+          sale.memo_no
+            ? `${t("cashMemo")}: ${sale.memo_no}`
+            : t("statusCompleted"),
         );
+        input.current?.focus();
+      } else {
+        try {
+          await apiRequest(`/sales/${sale.id}/memo`, token, org);
+          router.push(
+            `/sales/${sale.id}/${action === "print" ? "print" : "memo"}`,
+          );
+        } catch {
+          setCart([]);
+          setCustomer("");
+          setPaidTouched(false);
+          setPaid("");
+          setMemoFailure({ saleId: sale.id, memoNo: sale.memo_no });
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("saveError"));
+      setError(e instanceof Error ? e.message : t("saleFailedError"));
     } finally {
       setSaving(false);
     }
@@ -224,7 +293,26 @@ export function PosSale() {
       </header>
       {error ? (
         <div className="error module-error">
-          {error} <button onClick={() => void load()}>{t("retry")}</button>
+          <span>{error}</span>
+          {loadFailed ? (
+            <button onClick={() => void load()}>{t("retry")}</button>
+          ) : null}
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="success module-notice" role="status">
+          {notice}
+        </div>
+      ) : null}
+      {memoFailure ? (
+        <div className="error module-error" role="alert">
+          <span>
+            {t("saleCompletedMemoFailed")}
+            {memoFailure.memoNo ? ` (${memoFailure.memoNo})` : ""}
+          </span>
+          <Link href={`/sales/${memoFailure.saleId}/memo`}>
+            {t("retryMemo")}
+          </Link>
         </div>
       ) : null}
       <div className="pos-layout">
@@ -362,20 +450,21 @@ export function PosSale() {
             </div>
           )}
           <div className="checkout-fields">
-            <label>
-              <span>{t("optionalCustomer")}</span>
-              <select
-                value={customer}
-                onChange={(e) => setCustomer(e.target.value)}
-              >
-                <option value="">{t("walkIn")}</option>
-                {customers.map((c) => (
-                  <option value={c.id} key={c.id}>
-                    {c.name} {c.phone ? `· ${c.phone}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <PosCustomerSelector
+              customers={customers}
+              selectedId={customer}
+              onSelect={setCustomer}
+              onCustomerCreated={(created) => {
+                setCustomers((current) => [...current, created]);
+                setCustomer(created.id);
+                setNotice(t("customerCreated"));
+              }}
+              accessToken={token}
+              organizationId={org}
+              canCreate={permissions.includes("customers.create")}
+              required={customerRequired}
+              onDone={() => input.current?.focus()}
+            />
             <label>
               <span>{t("payment")}</span>
               <select
@@ -410,27 +499,29 @@ export function PosSale() {
               {t("due")} <strong>{money.format(due)}</strong>
             </span>
           </div>
-          {due > 0 && !customer ? (
-            <p className="price-warning">{t("dueCustomerWarning")}</p>
+          {blockingReason && blockingReason !== t("dueCustomerWarning") ? (
+            <p className="completion-reason" role="status">
+              {blockingReason}
+            </p>
           ) : null}
           <div className="pos-actions">
             <button
               className="button secondary"
-              disabled={saving || !cart.length || Boolean(due && !customer)}
+              disabled={saving || Boolean(blockingReason)}
               onClick={() => void complete("new")}
             >
               {t("completeNew")}
             </button>
             <button
               className="button secondary"
-              disabled={saving || !cart.length || Boolean(due && !customer)}
+              disabled={saving || Boolean(blockingReason)}
               onClick={() => void complete("print")}
             >
               {t("completePrint")}
             </button>
             <button
               className="button"
-              disabled={saving || !cart.length || Boolean(due && !customer)}
+              disabled={saving || Boolean(blockingReason)}
               onClick={() => void complete("memo")}
             >
               {saving ? t("completing") : t("completeSale")}

@@ -32,7 +32,7 @@ async def list_due(
               and c.status = 'active'
               and (cast(:branch_id as uuid) is null or c.branch_id = :branch_id)
             group by c.id
-            having coalesce(sum(l.debit - l.credit), 0) <> 0
+            having coalesce(sum(l.debit - l.credit), 0) > 0
             order by balance desc
             """
         ),

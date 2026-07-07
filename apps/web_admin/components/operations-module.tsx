@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, invalidateApiCache } from "@/lib/api";
 import { useI18n, type TranslationKey } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase-browser";
 import { normalizeNumericInput, parseLocalizedNumber } from "@/lib/numbers";
@@ -241,6 +241,10 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
     if (params.get("add") === "1" || params.get("collect") === "1")
       setOpen(true);
   }, [params]);
+  function refresh() {
+    invalidateApiCache(org || readOrganizationId());
+    void load();
+  }
   const metrics = useMemo(
     () =>
       kind === "products"
@@ -265,7 +269,21 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
                 money.format(rows.reduce((s, r) => s + num(r.due_total), 0)),
               ],
             ]
-          : [[t("totalRecords"), rows.length]],
+          : kind === "due"
+            ? [
+                [
+                  t("totalDue"),
+                  money.format(
+                    rows.reduce((sum, row) => sum + num(row.balance), 0),
+                  ),
+                ],
+                [t("customers"), rows.length],
+                [
+                  t("warning"),
+                  rows.filter((row) => Boolean(row.over_credit_limit)).length,
+                ],
+              ]
+            : [[t("totalRecords"), rows.length]],
     [kind, money, rows, t],
   );
   async function genericSubmit(e: FormEvent<HTMLFormElement>) {
@@ -357,14 +375,18 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
       </header>
       {error ? (
         <div className="error module-error" role="alert">
-          {error} <button onClick={() => void load()}>{t("retry")}</button>
+          {error} <button onClick={refresh}>{t("retry")}</button>
         </div>
       ) : null}
       <div className="metric-grid compact-metrics">
         {metrics.map(([label, value]) => (
           <article className="metric-card" key={String(label)}>
             <span>{label}</span>
-            <strong>{loading ? t("loading") : String(value)}</strong>
+            <strong
+              className={loading && !rows.length ? "metric-loading" : undefined}
+            >
+              {loading && !rows.length ? "—" : String(value)}
+            </strong>
           </article>
         ))}
       </div>
@@ -481,10 +503,10 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
           </strong>
           <button
             className="filter-button"
-            onClick={() => void load()}
+            onClick={refresh}
             disabled={loading}
           >
-            {t("retry")}
+            {loading ? t("loadingData") : t("refresh")}
           </button>
         </div>
         <div className="table-scroll">
@@ -498,7 +520,13 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
               <span key={label}>{label}</span>
             ))}
           </div>
-          {rows.length ? (
+          {loading && !rows.length ? (
+            <div className="table-skeleton" aria-label={t("loadingData")}>
+              <span className="skeleton-line" />
+              <span className="skeleton-line" />
+              <span className="skeleton-line" />
+            </div>
+          ) : rows.length ? (
             <div className="table-body">
               {rows.map((row, i) => (
                 <div
@@ -563,8 +591,8 @@ export function OperationsModule({ kind }: { kind: ModuleKind }) {
             </div>
           ) : (
             <div className="empty-state">
-              <h2>{loading ? t("loading") : t("noData")}</h2>
-              <p>{loading ? t("loadingWorkspace") : t("firstRecordHint")}</p>
+              <h2>{kind === "due" ? t("noDueCustomers") : t("noData")}</h2>
+              <p>{kind === "due" ? t("dueIntro") : t("firstRecordHint")}</p>
             </div>
           )}
         </div>
@@ -616,6 +644,7 @@ function ProductForm({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const router = useRouter();
   const { t, locale } = useI18n();
   const money = moneyFormatter(locale);
   const [name, setName] = useState("");
@@ -737,7 +766,7 @@ function ProductForm({
         (e.nativeEvent as SubmitEvent).submitter?.getAttribute("data-pos") ===
         "1"
       ) {
-        location.assign(`/sales/new?product=${result.id}`);
+        router.push(`/sales/new?product=${result.id}`);
         return;
       }
       if (

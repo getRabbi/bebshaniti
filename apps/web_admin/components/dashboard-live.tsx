@@ -93,7 +93,7 @@ export function DashboardLive() {
         money.format(report.collection_today),
         money.format(report.sales_this_month),
       ]
-    : Array(8).fill(t("loading"));
+    : Array(8).fill("—");
   return (
     <>
       {error ? (
@@ -104,12 +104,12 @@ export function DashboardLive() {
           </button>
         </div>
       ) : null}
-      <div className="metric-grid dashboard-metrics">
+      <div className="metric-grid dashboard-metrics" aria-busy={loading}>
         {labels.map((label, i) => (
           <MetricCard
             key={label}
             label={label}
-            hint={loading ? t("loading") : values[i]}
+            hint={values[i]}
             tone={
               i === 2 ? "amber" : i === 3 ? "red" : i === 7 ? "blue" : "green"
             }
