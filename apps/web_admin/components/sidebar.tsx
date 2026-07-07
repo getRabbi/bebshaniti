@@ -73,6 +73,7 @@ export function Sidebar() {
               }
               key={href}
               href={href}
+              prefetch
             >
               <Icon name={icon} />
               <span>{t(key)}</span>

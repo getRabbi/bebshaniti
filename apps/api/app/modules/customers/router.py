@@ -21,6 +21,8 @@ customer_creator = require_permission("customers.create")
 @router.get("")
 async def list_customers(
     search: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     context: OrganizationContext = Depends(get_organization_context),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, object]]:
@@ -41,12 +43,15 @@ async def list_customers(
               and (cast(:search as text) is null or c.name ilike '%' || :search || '%'
                 or c.phone ilike '%' || :search || '%')
             group by c.id, b.name order by c.name
+            limit :limit offset :offset
             """
         ),
         {
             "organization_id": context.organization_id,
             "branch_id": context.branch_id,
             "search": search,
+            "limit": limit,
+            "offset": offset,
         },
     )
     return [dict(row) for row in result.mappings().all()]

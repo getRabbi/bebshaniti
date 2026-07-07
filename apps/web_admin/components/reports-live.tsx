@@ -223,7 +223,7 @@ export function ReportsLive() {
         <article className="settings-card">
           <div>
             <h2>{t("profitSummary")}</h2>
-            <p>{profit ? money.format(profit.gross_profit) : t("loading")}</p>
+            <p>{profit ? money.format(profit.gross_profit) : "—"}</p>
             <small>
               {t("profitMargin")}: {profit?.profit_margin ?? 0}%
             </small>
@@ -232,11 +232,7 @@ export function ReportsLive() {
         <article className="settings-card">
           <div>
             <h2>{t("inventoryValue")}</h2>
-            <p>
-              {inventory
-                ? money.format(inventory.inventory_value)
-                : t("loading")}
-            </p>
+            <p>{inventory ? money.format(inventory.inventory_value) : "—"}</p>
             <small>
               {t("lowStockProducts")}: {inventory?.low_stock_count ?? 0}
             </small>
@@ -245,7 +241,7 @@ export function ReportsLive() {
         <article className="settings-card">
           <div>
             <h2>{t("totalDue")}</h2>
-            <p>{due ? money.format(due.receivable_due) : t("loading")}</p>
+            <p>{due ? money.format(due.receivable_due) : "—"}</p>
           </div>
         </article>
       </div>

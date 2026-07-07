@@ -63,12 +63,13 @@ test.beforeAll(async () => {
 
 test("merchant can enter localized product data and complete core workflows", async ({
   page,
-}) => {
+}, testInfo) => {
   const runId = `${tag}-${randomBytes(4).toString("hex")}`;
   const productName = `UAT UI পণ্য ${runId}`;
   const categoryName = `UAT বিভাগ ${runId}`;
   const unitName = `box-${runId.slice(-8)}`;
   const customerName = `UAT UI কাস্টমার ${runId}`;
+  const quickCustomerName = `UAT POS কাস্টমার ${runId}`;
   const importedProductName = `UAT CSV পণ্য ${runId}`;
   const runtimeFailures: string[] = [];
   page.on("pageerror", (error) => runtimeFailures.push(error.message));
@@ -93,6 +94,18 @@ test("merchant can enter localized product data and complete core workflows", as
 
   await page.goto("/products?add=1");
   await expect(page.locator("section.premium-form")).toBeVisible();
+  const productSave = page
+    .locator("section.premium-form")
+    .getByRole("button", { name: "সেভ", exact: true });
+  if (testInfo.project.name.includes("desktop")) {
+    await productSave.hover();
+    const productSaveStyle = await productSave.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      return { color: style.color, background: style.backgroundColor };
+    });
+    expect(productSaveStyle.color).toBe("rgb(255, 255, 255)");
+    expect(productSaveStyle.background).not.toBe("rgba(0, 0, 0, 0)");
+  }
   await page.locator(".suggestion-field input").fill(productName);
   await page.locator('input[name="categoryName"]').fill(categoryName);
   await page.locator('input[name="unitName"]').fill(unitName);
@@ -145,6 +158,122 @@ test("merchant can enter localized product data and complete core workflows", as
     .click();
   await page.waitForURL(/\/sales\/[0-9a-f-]+\/memo$/);
   await expect(page.locator("article.cash-memo")).toBeVisible();
+  await expect(page.locator("article.cash-memo h2")).not.toBeEmpty();
+
+  await page.goto("/sales/new");
+  const dueProductSearch = page.getByPlaceholder("নাম, SKU বা বারকোড লিখুন", {
+    exact: true,
+  });
+  await dueProductSearch.fill(productName);
+  await dueProductSearch.press("Enter");
+  await page.getByLabel("পরিশোধ", { exact: true }).fill("৫০");
+  await expect(
+    page.getByText(
+      "বাকি বিক্রয়ের জন্য কাস্টমার নির্বাচন করুন অথবা নতুন কাস্টমার যোগ করুন।",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const completeDueSale = page.getByRole("button", {
+    name: "বিক্রয় সম্পন্ন করুন",
+    exact: true,
+  });
+  await expect(completeDueSale).toBeDisabled();
+  await page
+    .getByRole("button", { name: "+ নতুন কাস্টমার যোগ করুন", exact: true })
+    .click();
+  await page
+    .getByLabel("কাস্টমারের নাম *", { exact: true })
+    .fill(quickCustomerName);
+  await page
+    .getByLabel("ফোন (ঐচ্ছিক)", { exact: true })
+    .fill(`019${runId.slice(-8)}`);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "সেভ", exact: true })
+    .click();
+  await expect(
+    page.getByText(quickCustomerName, { exact: true }),
+  ).toBeVisible();
+  await expect(completeDueSale).toBeEnabled();
+  await completeDueSale.click();
+  await page.waitForURL(/\/sales\/[0-9a-f-]+\/memo$/);
+  await expect(page.locator("article.cash-memo")).toBeVisible();
+
+  await page.goto("/sales/new");
+  const unpaidProductSearch = page.getByPlaceholder(
+    "নাম, SKU বা বারকোড লিখুন",
+    { exact: true },
+  );
+  await unpaidProductSearch.fill(productName);
+  await unpaidProductSearch.press("Enter");
+  await page.getByLabel("পরিশোধ", { exact: true }).fill("০");
+  const customerSearch = page.getByLabel("কাস্টমার খুঁজুন", { exact: true });
+  await customerSearch.fill(quickCustomerName);
+  await customerSearch.press("Enter");
+  await page
+    .getByRole("button", { name: "সম্পন্ন + প্রিন্ট", exact: true })
+    .click();
+  await page.waitForURL(/\/sales\/[0-9a-f-]+\/print$/);
+  await expect(page.locator("article.cash-memo h2")).not.toBeEmpty();
+
+  await page.goto("/sales/new");
+  const stockProductSearch = page.getByPlaceholder("নাম, SKU বা বারকোড লিখুন", {
+    exact: true,
+  });
+  await stockProductSearch.fill(productName);
+  await stockProductSearch.press("Enter");
+  await page.getByLabel("পরিমাণ", { exact: true }).fill("৯৯");
+  await page.getByLabel("পরিশোধ", { exact: true }).fill("");
+  await expect(
+    page.getByText("পরিশোধের পরিমাণ সঠিক নয়।", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("পরিশোধ", { exact: true }).fill(String(99 * 125.75));
+  await page
+    .getByRole("button", { name: "বিক্রয় সম্পন্ন করুন", exact: true })
+    .click();
+  await expect(
+    page.getByText("স্টক পর্যাপ্ত নেই।", { exact: true }),
+  ).toBeVisible();
+
+  let contextRequests = 0;
+  let measureNavigation = true;
+  page.on("request", (request) => {
+    if (
+      measureNavigation &&
+      request.url().includes("/api/v1/organizations/current")
+    )
+      contextRequests += 1;
+  });
+  const documentNavigationsBefore = await page.evaluate(
+    () => performance.getEntriesByType("navigation").length,
+  );
+  if (testInfo.project.name.includes("desktop")) {
+    for (const [label, route] of [
+      ["পণ্য", "/products"],
+      ["বিক্রয়", "/sales"],
+      ["বাকি / পাওনা", "/due"],
+      ["রিপোর্ট", "/reports"],
+    ] as const) {
+      await page.getByRole("link", { name: label, exact: true }).click();
+      await page.waitForURL(`**${route}`);
+      if (route === "/due") {
+        await expect(page.locator(".table-skeleton")).toHaveCount(0);
+        await expect(page.locator(".module-error")).toHaveCount(0);
+      }
+    }
+  } else {
+    await page.goto("/due");
+    await expect(page.locator(".table-skeleton")).toHaveCount(0);
+    await page.goto("/reports");
+  }
+  measureNavigation = false;
+  const documentNavigationsAfter = await page.evaluate(
+    () => performance.getEntriesByType("navigation").length,
+  );
+  if (testInfo.project.name.includes("desktop")) {
+    expect(documentNavigationsAfter).toBe(documentNavigationsBefore);
+    expect(contextRequests).toBeLessThanOrEqual(1);
+  }
 
   for (const route of ["/due", "/reports", "/settings"]) {
     await page.goto(route);

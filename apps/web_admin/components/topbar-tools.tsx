@@ -1,12 +1,14 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase-browser";
 
-const shortcuts: Record<string, { permission: string; route: string }> = {
+const shortcuts: Record<string, { permission: string; route: Route }> = {
   s: { permission: "sales.create", route: "/sales/new" },
   p: { permission: "products.create", route: "/products?add=1" },
   c: { permission: "customers.create", route: "/customers?add=1" },
@@ -21,6 +23,7 @@ function organizationCookie() {
 }
 
 export function TopbarTools() {
+  const router = useRouter();
   const { locale, setLocale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -50,12 +53,17 @@ export function TopbarTools() {
       const shortcut = shortcuts[event.key.toLowerCase()];
       if (shortcut && permissions.includes(shortcut.permission)) {
         event.preventDefault();
-        window.location.assign(shortcut.route);
+        router.push(shortcut.route);
       }
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, [permissions]);
+  }, [permissions, router]);
+
+  useEffect(() => {
+    for (const shortcut of Object.values(shortcuts))
+      router.prefetch(shortcut.route);
+  }, [router]);
 
   const lastSale =
     typeof window !== "undefined"
