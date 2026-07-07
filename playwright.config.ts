@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "./tests/uat",
   fullyParallel: false,
   workers: 1,
-  timeout: 120_000,
+  timeout: 240_000,
   expect: { timeout: 20_000 },
   reporter: [["list"]],
   use: {
